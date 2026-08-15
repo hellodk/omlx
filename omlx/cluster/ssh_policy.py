@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-_MANAGED_IDENTITY = "~/.ssh/omlx_cluster"
+from .ssh_identity import _MANAGED_IDENTITY
 
 
 def cluster_ssh_options(
