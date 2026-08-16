@@ -2,6 +2,7 @@
 
 import io
 import json
+import platform
 import signal
 import stat
 import subprocess
@@ -368,6 +369,7 @@ def test_remote_preflight_uses_prompt_free_noninteractive_ssh():
                 versions
                 | {
                     "cluster-protocol": CLUSTER_PROTOCOL_VERSION,
+                    "python": platform.python_version(),
                     "model-exists": True,
                     "admission-ceiling-bytes": 1024**4,
                 }
@@ -511,6 +513,7 @@ def test_remote_preflight_rejects_runtime_drift():
 def test_remote_preflight_requires_same_model_path():
     versions = _local_runtime_versions() | {
         "cluster-protocol": CLUSTER_PROTOCOL_VERSION,
+        "python": platform.python_version(),
         "model-exists": False,
     }
 
@@ -546,6 +549,7 @@ def test_remote_preflight_requires_matching_model_identity(
     )
     versions = _local_runtime_versions() | {
         "cluster-protocol": CLUSTER_PROTOCOL_VERSION,
+        "python": platform.python_version(),
         "model-exists": True,
         "model_identity": "remote",
         "stage_ready": True,
@@ -583,6 +587,7 @@ def test_remote_preflight_rejects_an_incomplete_rank_stage(
     )
     versions = _local_runtime_versions() | {
         "cluster-protocol": CLUSTER_PROTOCOL_VERSION,
+        "python": platform.python_version(),
         "model-exists": True,
         "model_identity": "same",
         "stage_ready": False,
@@ -615,6 +620,7 @@ def test_peer_probe_is_prompt_free_and_reports_runtime_compatibility():
             "omlx_version": versions["omlx"],
             "mlx_version": versions["mlx"],
             "mlx_lm_version": versions["mlx-lm"],
+            "python_version": platform.python_version(),
         },
         "transport": {
             "rdma": {"enabled": True, "devices": ["rdma_en5"]},
@@ -656,6 +662,7 @@ def test_peer_probe_rejects_protocol_drift():
             "omlx_version": versions["omlx"],
             "mlx_version": versions["mlx"],
             "mlx_lm_version": versions["mlx-lm"],
+            "python_version": platform.python_version(),
         },
         "transport": {},
     }
@@ -685,6 +692,7 @@ def test_peer_probe_discovers_a_different_linux_python_path():
             "omlx_version": versions["omlx"],
             "mlx_version": versions["mlx"],
             "mlx_lm_version": versions["mlx-lm"],
+            "python_version": platform.python_version(),
             "python_executable": "/opt/omlx/bin/python",
         },
         "transport": {},
@@ -722,6 +730,7 @@ def test_peer_probe_preserves_packaged_cluster_wrapper_path():
             "omlx_version": versions["omlx"],
             "mlx_version": versions["mlx"],
             "mlx_lm_version": versions["mlx-lm"],
+            "python_version": platform.python_version(),
             "python_executable": "/Applications/oMLX.app/Contents/Python/python3",
         },
         "transport": {},
@@ -1007,6 +1016,7 @@ def test_packaged_app_peer_is_runtime_ready_without_a_hand_made_shim():
             "omlx_version": versions["omlx"],
             "mlx_version": versions["mlx"],
             "mlx_lm_version": versions["mlx-lm"],
+            "python_version": platform.python_version(),
             "python_executable": _BUNDLED_PYTHON,
         },
         "transport": {},

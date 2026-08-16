@@ -119,6 +119,25 @@ _RULES: tuple[tuple[re.Pattern[str], Guidance], ...] = (
         ),
     ),
     (
+        # Before the generic version rule below, which would otherwise claim
+        # the oMLX release differs when it is the interpreter that does (#2695).
+        re.compile(r"python local=\S+ remote=", re.I),
+        Guidance(
+            "The two Macs are running different Python versions",
+            "MLX ships a separate build for each Python version, so ranks on "
+            "different ones load different binaries and can disagree in ways "
+            "that produce wrong output rather than a clean error.",
+            (
+                "Run both Macs from the same oMLX install shape — either the "
+                "packaged app on both, or the same Python version on both.",
+                "If one Mac runs oMLX from source, recreate its environment on "
+                "the Python version the other Mac reports, then reinstall.",
+                "Re-run Set up cluster afterwards to confirm.",
+            ),
+            "worker-runtime",
+        ),
+    ),
+    (
         re.compile(
             r"weight file is missing|model stage is incomplete|missing .*\.safetensors",
             re.I,

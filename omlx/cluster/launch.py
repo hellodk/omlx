@@ -9,6 +9,7 @@ import ipaddress
 import json
 import math
 import os
+import platform
 import re
 import shlex
 import shutil
@@ -179,6 +180,43 @@ def _local_runtime_versions() -> dict[str, str]:
         "mlx": _package_version("mlx"),
         "mlx-lm": _package_version("mlx-lm"),
     }
+
+
+def _python_minor(version: str) -> tuple[str, str] | None:
+    """``"3.12.13"`` -> ``("3", "12")``; ``None`` when it is not a version."""
+
+    parts = version.split(".")
+    if len(parts) < 2 or not parts[0].isdigit() or not parts[1].isdigit():
+        return None
+    return (parts[0], parts[1])
+
+
+def _interpreter_parity(
+    local: str, remote: Any
+) -> tuple[str | None, str | None]:
+    """Compare the interpreter two ranks will actually run under (#2695).
+
+    Returns ``(blocking, warning)``, at most one of which is set.
+
+    ``mlx`` and ``mlx-lm`` wheels are ABI-tagged per Python minor version, so a
+    major.minor split is a real incompatibility and fails the gate — the
+    packaged app bundles CPython 3.11 while a source or uv install commonly
+    runs 3.12, and that pair used to read as "runtime match".  A patch-level
+    difference is not an ABI boundary, so it launches; it is still reported,
+    because an operator chasing odd behaviour should not have to discover the
+    interpreters differ by hand.
+    """
+
+    remote_text = remote.strip() if isinstance(remote, str) else ""
+    if not remote_text:
+        return (f"python local={local} remote=missing", None)
+    local_minor = _python_minor(local)
+    remote_minor = _python_minor(remote_text)
+    if remote_minor is None or local_minor != remote_minor:
+        return (f"python local={local} remote={remote_text}", None)
+    if local != remote_text:
+        return (None, f"python patch differs: local={local} remote={remote_text}")
+    return (None, None)
 
 
 def _validate_python_executable(value: str) -> str:
@@ -1242,13 +1280,58 @@ def probe_remote_host(
         for name in expected
         if expected[name] != remote_versions[name]
     ]
+    # The packages can match while the interpreter under them does not (#2695).
+    blocking, warning = _interpreter_parity(
+        platform.python_version(), runtime.get("python_version")
+    )
+    if blocking is not None:
+        mismatches.append(blocking)
+    warnings = [warning] if warning is not None else []
+    if warnings:
+        existing = payload.get("warnings")
+        payload["warnings"] = (
+            [*existing, *warnings] if isinstance(existing, list) else list(warnings)
+        )
     return {
         "ok": not mismatches,
         "ssh": validate_ssh_target(ssh_target),
         "status": payload,
         "runtime_compatible": not mismatches,
         "runtime_mismatches": mismatches,
+        "runtime_warnings": warnings,
     }
+
+
+_PREFLIGHT_SCRIPT = (
+    "import importlib.metadata as m,json,pathlib,platform,sys\n"
+    "from omlx.cluster.memory_guard import ceiling_breakdown\n"
+    "from omlx.cluster.models import CLUSTER_PROTOCOL_VERSION as p\n"
+    "from omlx.cluster.staging import validate_staged_model as validate\n"
+    "from omlx._torch_stub import install as install_torch_stub\n"
+    "install_torch_stub()\n"
+    "import mlx_lm.server\n"
+    "import omlx.adapter.output_parser\n"
+    "def package_version(name):\n"
+    "    try:\n"
+    "        return m.version(name)\n"
+    "    except m.PackageNotFoundError:\n"
+    "        if name == 'omlx':\n"
+    "            from omlx._version import __version__\n"
+    "            return __version__\n"
+    "        return 'unknown'\n"
+    "x=pathlib.Path(sys.argv[1]).expanduser()\n"
+    "v={n:package_version(n) for n in ('omlx','mlx','mlx-lm')}\n"
+    "v['cluster-protocol']=p\n"
+    # The interpreter this rank will actually run under. mlx wheels are
+    # ABI-tagged per minor version, so this is part of the runtime gate (#2695).
+    "v['python']=platform.python_version()\n"
+    "v['admission-ceiling-bytes']=int("
+    "ceiling_breakdown(sys.argv[4]).get('hard_limit',0))\n"
+    "v['model-exists']=x.is_dir()\n"
+    "if v['model-exists']:\n"
+    "    v.update(validate(x,int(sys.argv[2]),int(sys.argv[3])))\n"
+    "print(json.dumps(v,sort_keys=True))"
+)
 
 
 def preflight_remote_hosts(
@@ -1264,33 +1347,8 @@ def preflight_remote_hosts(
     if timeout <= 0:
         raise ValueError("SSH preflight timeout must be positive")
     expected = _local_runtime_versions()
-    script = (
-        "import importlib.metadata as m,json,pathlib,sys\n"
-        "from omlx.cluster.memory_guard import ceiling_breakdown\n"
-        "from omlx.cluster.models import CLUSTER_PROTOCOL_VERSION as p\n"
-        "from omlx.cluster.staging import validate_staged_model as validate\n"
-        "from omlx._torch_stub import install as install_torch_stub\n"
-        "install_torch_stub()\n"
-        "import mlx_lm.server\n"
-        "import omlx.adapter.output_parser\n"
-        "def package_version(name):\n"
-        "    try:\n"
-        "        return m.version(name)\n"
-        "    except m.PackageNotFoundError:\n"
-        "        if name == 'omlx':\n"
-        "            from omlx._version import __version__\n"
-        "            return __version__\n"
-        "        return 'unknown'\n"
-        "x=pathlib.Path(sys.argv[1]).expanduser()\n"
-        "v={n:package_version(n) for n in ('omlx','mlx','mlx-lm')}\n"
-        "v['cluster-protocol']=p\n"
-        "v['admission-ceiling-bytes']=int("
-        "ceiling_breakdown(sys.argv[4]).get('hard_limit',0))\n"
-        "v['model-exists']=x.is_dir()\n"
-        "if v['model-exists']:\n"
-        "    v.update(validate(x,int(sys.argv[2]),int(sys.argv[3])))\n"
-        "print(json.dumps(v,sort_keys=True))"
-    )
+    script = _PREFLIGHT_SCRIPT
+    local_python_version = platform.python_version()
     results: list[dict[str, Any]] = []
     local_model_exists = Path(deployment.model).is_dir()
     assignments = sorted(deployment.assignments, key=lambda item: item.rank)
@@ -1341,6 +1399,7 @@ def preflight_remote_hosts(
                     "model_identity": local_identity,
                     "stage_ready": local_validation.get("stage_ready"),
                     "admission_ceiling_bytes": local_admission_ceiling,
+                    "runtime_warnings": [],
                     "local": True,
                 }
             )
@@ -1395,6 +1454,12 @@ def preflight_remote_hosts(
                 f"local={CLUSTER_PROTOCOL_VERSION} "
                 f"remote={versions.get('cluster-protocol', 'missing')}"
             )
+        blocking, warning = _interpreter_parity(
+            local_python_version, versions.get("python")
+        )
+        if blocking is not None:
+            mismatches.append(blocking)
+        runtime_warnings = [warning] if warning is not None else []
         if versions.get("model-exists") is not True:
             mismatches.append(
                 f"model directory is missing on remote host: {deployment.model}"
@@ -1425,6 +1490,7 @@ def preflight_remote_hosts(
                 "admission_ceiling_bytes": int(
                     versions.get("admission-ceiling-bytes") or 0
                 ),
+                "runtime_warnings": runtime_warnings,
                 "local": False,
             }
         )
