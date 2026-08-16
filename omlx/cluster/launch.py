@@ -847,6 +847,33 @@ def memory_bytes():
     except Exception:
         return 0
 
+# Look for an oMLX install rather than asserting there isn't one. This runs
+# under a plain system interpreter, so importing omlx is not expected to work
+# even when the app is present; anything found here means the runtime exists
+# and merely could not be started, which is a different diagnosis from
+# "not installed".
+def worker_runtime_evidence():
+    found = []
+    for path in (
+        os.path.expanduser("~/.omlx/bin/omlx"),
+        os.path.expanduser("~/.omlx/bin/omlx-cluster-python"),
+        "/Applications/oMLX.app",
+        os.path.expanduser("~/Applications/oMLX.app"),
+        "/opt/omlx-cluster-worker/venv/bin/python",
+    ):
+        try:
+            if os.path.exists(path):
+                found.append(path)
+        except Exception:
+            pass
+    try:
+        import importlib.util
+        if importlib.util.find_spec("omlx") is not None:
+            found.append("import omlx")
+    except Exception:
+        pass
+    return found
+
 gpu_code, gpu_output = run([
     "nvidia-smi", "--query-gpu=name", "--format=csv,noheader"
 ])
@@ -904,6 +931,7 @@ payload = {
         "fabric_group_id": None,
         "fabric_verified": False,
         "worker_runtime_ready": False,
+        "worker_runtime_evidence": worker_runtime_evidence(),
     },
     "runtime": {
         "omlx_version": "",
@@ -927,10 +955,15 @@ payload = {
         "thunderbolt": {"ports": [], "peer_connected": False},
         "route": None,
     },
-    "warnings": ["oMLX worker runtime is not installed on this node."],
+    # Filled in by probe_remote_system_host from the evidence above, so the
+    # verdict has exactly one author.
+    "warnings": [],
 }
 print(json.dumps(payload, sort_keys=True))
 """
+
+_RUNTIME_MISSING = "oMLX worker runtime is not installed"
+_RUNTIME_UNVERIFIED = "oMLX worker runtime could not be verified"
 
 
 def probe_remote_system_host(
@@ -972,13 +1005,29 @@ def probe_remote_system_host(
         raise DistributedLaunchError(
             f"{ssh_target} returned incomplete hardware discovery"
         )
+    # "Not installed" is a claim about the peer, so it has to be earned. The
+    # inventory looks for an oMLX install with a plain interpreter; when it
+    # finds one, all we actually know is that no interpreter here could load
+    # the worker — say that instead (#2680).
+    raw_evidence = payload["node"].get("worker_runtime_evidence")
+    evidence = (
+        [str(item) for item in raw_evidence] if isinstance(raw_evidence, list) else []
+    )
+    payload["warnings"] = [
+        "oMLX is installed on this node but its worker runtime could not be run."
+        if evidence
+        else "oMLX worker runtime is not installed on this node."
+    ]
     return {
         "ok": False,
         "ssh": validate_ssh_target(ssh_target),
         "ssh_reachable": True,
         "status": payload,
         "runtime_compatible": False,
-        "runtime_mismatches": ["oMLX worker runtime is not installed"],
+        "runtime_mismatches": [
+            _RUNTIME_UNVERIFIED if evidence else _RUNTIME_MISSING
+        ],
+        "worker_runtime_evidence": evidence,
         "bootstrap_required": True,
     }
 
@@ -986,7 +1035,7 @@ def probe_remote_system_host(
 def probe_remote_admission_ceiling(
     ssh_target: str,
     *,
-    python_executable: str = sys.executable,
+    python_executable: str | None = None,
     timeout: float = 8.0,
     runner: SSHRunner = subprocess.run,
 ) -> int:
@@ -996,9 +1045,16 @@ def probe_remote_admission_ceiling(
     doing that merely to refresh a slider made every cluster-page load slow.
     This fixed, bounded command uses the peer's own oMLX memory guard and
     normally completes in one SSH round trip.
+
+    ``python_executable`` is the interpreter a previous capability probe found
+    on the peer.  It used to default to the coordinator's ``sys.executable``,
+    which inside the packaged app is a bundled binary that exists on the peer
+    but cannot import oMLX — so every dashboard poll raised, and the cluster
+    page oscillated between ready and Needs Attention (#2680).  With no known
+    interpreter, or when the known one has stopped working, discover the peer's
+    own instead.
     """
 
-    python_executable = _validate_python_executable(python_executable)
     script = (
         "import json,urllib.request\n"
         "ceiling=0\n"
@@ -1014,18 +1070,47 @@ def probe_remote_admission_ceiling(
         "    ceiling=int(ceiling_breakdown().get('hard_limit',0))\n"
         "print(json.dumps({'admission_ceiling_bytes':ceiling}))"
     )
-    completed = _run_cluster_ssh(
-        ssh_target,
-        shlex.join([python_executable, "-c", script]),
-        timeout=timeout,
-        runner=runner,
-    )
-    if completed.returncode != 0:
-        detail = completed.stderr.strip() or completed.stdout.strip()
-        raise DistributedLaunchError(
-            f"memory ceiling probe failed for {ssh_target}"
-            + (f": {detail[:500]}" if detail else "")
+
+    def _read(executable: str) -> subprocess.CompletedProcess[str]:
+        return _run_cluster_ssh(
+            ssh_target,
+            shlex.join([executable, "-c", script]),
+            timeout=timeout,
+            runner=runner,
         )
+
+    attempted: str | None = None
+    completed: subprocess.CompletedProcess[str] | None = None
+    if python_executable is not None:
+        attempted = _validate_python_executable(python_executable)
+        completed = _read(attempted)
+    if completed is None or completed.returncode != 0:
+        detail = (
+            (completed.stderr.strip() or completed.stdout.strip())
+            if completed is not None
+            else ""
+        )
+        failure = f"memory ceiling probe failed for {ssh_target}" + (
+            f": {detail[:500]}" if detail else ""
+        )
+        try:
+            discovered = discover_remote_python_executable(
+                ssh_target,
+                preferred=attempted or sys.executable,
+                timeout=min(timeout, 8.0),
+                runner=runner,
+            )
+        except DistributedLaunchError as exc:
+            raise DistributedLaunchError(failure) from exc
+        if discovered == attempted:
+            raise DistributedLaunchError(failure)
+        completed = _read(discovered)
+        if completed.returncode != 0:
+            detail = completed.stderr.strip() or completed.stdout.strip()
+            raise DistributedLaunchError(
+                f"memory ceiling probe failed for {ssh_target}"
+                + (f": {detail[:500]}" if detail else "")
+            )
     try:
         payload = json.loads(completed.stdout)
         ceiling = int(payload.get("admission_ceiling_bytes") or 0)

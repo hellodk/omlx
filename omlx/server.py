@@ -407,6 +407,17 @@ async def lifespan(app: FastAPI):
 
     _reset_boundary_snapshots_for_server()
 
+    # Publish the interpreter another Mac's coordinator discovers over SSH.
+    # Without it a packaged-app peer fails every discovery candidate and gets
+    # reported as "worker runtime is not installed" (#2680). Best effort: a
+    # read-only home must never keep this node from serving inference.
+    try:
+        from .cluster.worker_shim import ensure_cluster_python_shim
+
+        ensure_cluster_python_shim()
+    except Exception as exc:  # pragma: no cover - never block startup
+        logger.warning("Could not publish the cluster interpreter shim: %s", exc)
+
     # Advertise this oMLX instance so another Mac can identify it by hostname
     # and API port without asking the user to type an SSH target. Publication
     # is best-effort: inference remains available if Bonjour is disabled.
