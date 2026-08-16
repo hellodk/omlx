@@ -103,11 +103,15 @@ def ensure_cluster_python_shim(
         temporary.chmod(_SHIM_MODE)
         os.replace(temporary, target)
     except OSError as exc:
-        logger.warning("Could not publish %s: %s", CLUSTER_PYTHON_SHIM, exc)
+        logger.warning(
+            "Could not publish %s for %s: %r", CLUSTER_PYTHON_SHIM, executable, exc
+        )
         try:
             temporary.unlink(missing_ok=True)
-        except OSError:  # pragma: no cover - nothing further to try
-            pass
+        except OSError as cleanup_exc:  # pragma: no cover - nothing further to try
+            logger.warning(
+                "Could not remove the partial shim at %s: %r", temporary, cleanup_exc
+            )
         return None
     logger.info("Published %s -> %s", CLUSTER_PYTHON_SHIM, executable)
     return target

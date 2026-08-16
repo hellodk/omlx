@@ -8,6 +8,7 @@ installed" while the app sat in /Applications.  These tests pin the contract of
 the writer that now ships it on every install mode.
 """
 
+import logging
 import os
 import subprocess
 import sys
@@ -114,13 +115,39 @@ def test_rewrite_is_atomic_and_skipped_when_unchanged(tmp_path):
     assert list(second.parent.iterdir()) == [second]
 
 
-def test_writer_never_raises_when_the_home_directory_is_unwritable(tmp_path):
-    """Shim installation is best effort — it must not break server startup."""
+def test_writer_never_raises_when_the_home_directory_is_unwritable(tmp_path, caplog):
+    """Shim installation is best effort — it must not break server startup.
+
+    Best effort is not the same as silent: a peer that cannot be discovered
+    later is far cheaper to diagnose with this line in the log.
+    """
 
     blocked = tmp_path / "blocked"
     blocked.write_text("not a directory", encoding="utf-8")
 
-    assert ensure_cluster_python_shim(home=blocked) is None
+    with caplog.at_level(logging.WARNING, logger="omlx.cluster.worker_shim"):
+        assert ensure_cluster_python_shim(home=blocked) is None
+
+    assert any(
+        CLUSTER_PYTHON_SHIM in record.message and record.levelno >= logging.WARNING
+        for record in caplog.records
+    ), caplog.text
+
+
+def test_a_refused_executable_says_why(tmp_path, caplog):
+    with caplog.at_level(logging.DEBUG, logger="omlx.cluster.worker_shim"):
+        assert ensure_cluster_python_shim(home=tmp_path, executable="python3") is None
+
+    assert any("not absolute" in record.message for record in caplog.records), caplog.text
+
+
+def test_a_successful_publish_records_what_it_pointed_at(tmp_path, caplog):
+    with caplog.at_level(logging.INFO, logger="omlx.cluster.worker_shim"):
+        ensure_cluster_python_shim(home=tmp_path, executable="/usr/bin/python3")
+
+    assert any("/usr/bin/python3" in record.message for record in caplog.records), (
+        caplog.text
+    )
 
 
 def test_executable_that_is_not_an_absolute_path_is_refused(tmp_path):

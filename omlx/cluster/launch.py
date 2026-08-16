@@ -7,6 +7,7 @@ import hashlib
 import importlib.metadata
 import ipaddress
 import json
+import logging
 import math
 import os
 import platform
@@ -33,6 +34,8 @@ from .models import CLUSTER_PROTOCOL_VERSION
 from .performance import performance_profiles_from_records
 from .ssh_policy import cluster_ssh_options
 from .staging import validate_staged_model
+
+logger = logging.getLogger(__name__)
 
 _EVENT_PREFIX = "OMLX_CLUSTER_EVENT:"
 _LOG_LINE_LIMIT = 8192
@@ -890,6 +893,10 @@ def memory_bytes():
 # even when the app is present; anything found here means the runtime exists
 # and merely could not be started, which is a different diagnosis from
 # "not installed".
+def note(message):
+    # stderr only: stdout carries the JSON payload this probe is read for.
+    sys.stderr.write("omlx-probe: " + message + "\n")
+
 def worker_runtime_evidence():
     found = []
     for path in (
@@ -902,14 +909,18 @@ def worker_runtime_evidence():
         try:
             if os.path.exists(path):
                 found.append(path)
-        except Exception:
-            pass
+        except (OSError, ValueError) as exc:
+            # An unreadable parent or a bad path is not evidence either way;
+            # say so, because silence here reads as "absent".
+            note("cannot test %s: %r" % (path, exc))
     try:
         import importlib.util
         if importlib.util.find_spec("omlx") is not None:
             found.append("import omlx")
-    except Exception:
-        pass
+    except (ImportError, AttributeError, TypeError, ValueError, OSError) as exc:
+        # A broken or partially removed install raises here rather than
+        # returning None, and that is worth seeing in the SSH stderr.
+        note("cannot look up the omlx package: %r" % (exc,))
     return found
 
 gpu_code, gpu_output = run([
@@ -1139,9 +1150,26 @@ def probe_remote_admission_ceiling(
                 runner=runner,
             )
         except DistributedLaunchError as exc:
-            raise DistributedLaunchError(failure) from exc
+            # Carry the discovery reason into the message. Dropping it left
+            # the operator with a bare ModuleNotFoundError repeating every
+            # poll and no indication that a search had even been attempted.
+            raise DistributedLaunchError(
+                f"{failure}; no interpreter that can import oMLX was found "
+                f"on {ssh_target}: {exc}"
+            ) from exc
         if discovered == attempted:
-            raise DistributedLaunchError(failure)
+            raise DistributedLaunchError(
+                f"{failure}; {discovered} is the only interpreter "
+                f"{ssh_target} offers and it did not answer"
+            )
+        # A silent recovery is how the same stale interpreter got retried
+        # hundreds of times before anyone noticed (#2680).
+        logger.info(
+            "Memory ceiling probe for %s fell back from %s to the discovered %s",
+            ssh_target,
+            attempted or "no known interpreter",
+            discovered,
+        )
         completed = _read(discovered)
         if completed.returncode != 0:
             detail = completed.stderr.strip() or completed.stdout.strip()

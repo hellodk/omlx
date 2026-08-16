@@ -6,6 +6,7 @@ import platform
 import signal
 import stat
 import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -1168,6 +1169,40 @@ def test_preinstall_probe_measures_installation_instead_of_hardcoding_it():
     assert "/Applications/oMLX.app" in launch._REMOTE_SYSTEM_PROBE
     assert ".omlx/bin/omlx" in launch._REMOTE_SYSTEM_PROBE
     assert "find_spec" in launch._REMOTE_SYSTEM_PROBE
+
+
+def test_preinstall_probe_reports_its_own_failures_on_stderr():
+    """A swallowed error here reads as 'oMLX is absent'. Say what broke.
+
+    stdout carries the JSON the caller parses, so diagnostics must go to
+    stderr or they corrupt the payload.
+    """
+
+    script = launch._REMOTE_SYSTEM_PROBE
+    body = script.split("def worker_runtime_evidence")[1].split("\ngpu_code")[0]
+    # Neither blanket nor silent: every handler names its types and says what
+    # it could not do.
+    assert "except Exception" not in body
+    assert body.count("except ") == body.count("note(")
+    assert "except (OSError, ValueError) as exc" in body
+    assert "cannot test %s" in body
+    assert "cannot look up the omlx package" in body
+    assert "sys.stderr.write" in script
+
+
+def test_preinstall_probe_keeps_stdout_clean_when_every_lookup_fails():
+    """Run the real script under an interpreter that cannot import omlx."""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", launch._REMOTE_SYSTEM_PROBE],
+        capture_output=True,
+        text=True,
+        env={"PATH": "/usr/bin:/bin", "HOME": "/nonexistent-omlx-home"},
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert isinstance(payload["node"]["worker_runtime_evidence"], list)
 
 
 # --- The node role has to survive the argv the launcher actually runs -------
