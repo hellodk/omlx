@@ -246,6 +246,41 @@ def test_interpreter_parity_rule(local, remote, blocking, warning):
     assert launch._interpreter_parity(local, remote) == (blocking, warning)
 
 
+def test_every_probe_branch_returns_the_same_result_keys():
+    """A caller must not have to know which branch produced the result.
+
+    Observed live: the bootstrap fallback returned no runtime_warnings at all,
+    so the field read as None on one path and [] on the other.
+    """
+
+    def bootstrap_runner(argv, **_kwargs):
+        command = argv[-1]
+        if "import sys; print(sys.executable)" in command:
+            return subprocess.CompletedProcess(argv, 0, "/usr/bin/python3\n", "")
+        if "worker_runtime_evidence" in command:
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                json.dumps(
+                    {
+                        "node": {"worker_runtime_evidence": ["/Applications/oMLX.app"]},
+                        "runtime": {},
+                        "transport": {},
+                    }
+                ),
+                "",
+            )
+        return subprocess.CompletedProcess(argv, 1, "", "No module named 'omlx'")
+
+    bootstrap = launch.probe_remote_system_host(
+        "studio", preferred_python=PEER_PYTHON, runner=bootstrap_runner
+    )
+
+    for key in ("runtime_compatible", "runtime_mismatches", "runtime_warnings"):
+        assert key in bootstrap, key
+    assert bootstrap["runtime_warnings"] == []
+
+
 def test_dashboard_does_not_render_a_warned_peer_as_an_unqualified_match():
     cluster = pathlib.Path(
         "omlx/admin/templates/dashboard/_cluster.html"

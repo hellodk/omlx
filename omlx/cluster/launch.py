@@ -1076,6 +1076,9 @@ def probe_remote_system_host(
         "runtime_mismatches": [
             _RUNTIME_UNVERIFIED if evidence else _RUNTIME_MISSING
         ],
+        # Same keys as the healthy path, so a caller never has to know which
+        # branch produced the result before reading it.
+        "runtime_warnings": [],
         "worker_runtime_evidence": evidence,
         "bootstrap_required": True,
     }
