@@ -152,6 +152,10 @@ def test_provision_hosts_applies_same_key_to_all_hosts(monkeypatch, tmp_path):
         "omlx.cluster.provisioning.install_managed_key",
         fake_install,
     )
+    monkeypatch.setattr(
+        "omlx.cluster.provisioning.verify_managed_login",
+        lambda **kwargs: True,
+    )
 
     results = provision_hosts(
         hosts=[("192.168.1.5", "operator"), ("192.168.1.64", "operator")],
@@ -169,6 +173,10 @@ def test_provision_hosts_reports_failures_without_aborting(monkeypatch):
     monkeypatch.setattr(
         "omlx.cluster.provisioning.install_managed_key",
         failing_install,
+    )
+    monkeypatch.setattr(
+        "omlx.cluster.provisioning.verify_managed_login",
+        lambda **kwargs: True,
     )
 
     results = provision_hosts(
@@ -192,6 +200,10 @@ def test_provision_hosts_partial_failure_keeps_batch_going(monkeypatch):
     monkeypatch.setattr(
         "omlx.cluster.provisioning.install_managed_key",
         mixed_install,
+    )
+    monkeypatch.setattr(
+        "omlx.cluster.provisioning.verify_managed_login",
+        lambda **kwargs: True,
     )
 
     results = provision_hosts(
@@ -231,3 +243,40 @@ def test_ask_pass_path_never_persists_password(monkeypatch, tmp_path):
     assert "SSH_ASKPASS" not in env_now or "SuperSecret123" not in env_now.get(
         "SSH_ASKPASS", ""
     )
+
+
+def test_provision_hosts_fails_a_host_whose_installed_key_cannot_log_in():
+    """Writing authorized_keys is not the same as being able to use it."""
+
+    verified: list[str] = []
+
+    def ok_install(host, user, **kwargs):
+        return True
+
+    def refuse_login(*, host, user, **kwargs):
+        verified.append(host)
+        raise ProvisioningError(f"{host}: managed key was rejected")
+
+    results = provision_hosts(
+        hosts=[("192.168.1.5", "operator")],
+        installer=ok_install,
+        verifier=refuse_login,
+    )
+
+    assert verified == ["192.168.1.5"]
+    assert results["ok"] == 0
+    assert results["failed"] == 1
+    assert "rejected" in results["errors"]["192.168.1.5"]
+
+
+def test_provision_hosts_verifies_every_host_it_reports_ok():
+    verified: list[str] = []
+
+    results = provision_hosts(
+        hosts=[("192.168.1.5", "operator"), ("192.168.1.64", "operator")],
+        installer=lambda **kwargs: True,
+        verifier=lambda *, host, user, **kwargs: verified.append(host) or True,
+    )
+
+    assert verified == ["192.168.1.5", "192.168.1.64"]
+    assert results["ok"] == 2
