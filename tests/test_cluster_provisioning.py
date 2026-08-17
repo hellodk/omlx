@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 
 import pytest
@@ -224,6 +225,17 @@ def test_ask_pass_path_never_persists_password(monkeypatch, tmp_path):
         calls.append((list(argv), kwargs))
         return subprocess.CompletedProcess(argv, 0, "", "")
 
+    # sshpass is a brew package, not a macOS builtin: the CI runners do not
+    # have it. Stub the lookup so this test proves the password handling, not
+    # whichever binaries happen to be installed on the host running pytest.
+    real_which = shutil.which
+
+    def fake_which(name, *args, **kwargs):
+        if name == "sshpass":
+            return "/opt/homebrew/bin/sshpass"
+        return real_which(name, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "which", fake_which)
     monkeypatch.setattr(subprocess, "run", fake_run)
     monkeypatch.setattr(
         "omlx.cluster.provisioning.managed_public_key",
