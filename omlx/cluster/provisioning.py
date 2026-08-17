@@ -24,6 +24,7 @@ from typing import Any
 from .deployment import validate_ssh_target
 from .ssh_identity import _MANAGED_IDENTITY, _SSH_PORT, default_ssh_user
 from .ssh_keys import generate_ssh_key_pair
+from .ssh_policy import cluster_ssh_options
 
 _SSH_TRANSPORT_TIMEOUT = 120  # seconds per ssh subprocess
 
@@ -81,21 +82,18 @@ def _ssh_argv(
 
     if not (1 <= int(port) <= 65535):
         raise ValueError("SSH port must be between 1 and 65535")
-    options = [
-        "BatchMode=yes",
-        "StrictHostKeyChecking=accept-new",
-        "CheckHostIP=no",
-        "AddressFamily=inet",
-        "LogLevel=ERROR",
-        f"IdentityFile={identity}",
-    ]
-    if connect_timeout is not None:
-        options.append(f"ConnectTimeout={int(max(1, connect_timeout))}")
-    flattened: list[str] = []
-    for option in options:
-        flattened.extend(("-o", option))
     target = f"{user}@{host}"
-    return ["ssh", *flattened, "-p", str(port), target, *command]
+    # One policy for every cluster subprocess: a second hand-rolled option list
+    # is how an interactive prompt gets back in. Only the identity differs here,
+    # because the managed key is not on the host yet.
+    return [
+        "ssh",
+        *cluster_ssh_options(connect_timeout=connect_timeout, identity=identity),
+        "-p",
+        str(port),
+        target,
+        *command,
+    ]
 
 
 def _run_checked(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
@@ -209,14 +207,22 @@ def provision_hosts(
     admin_key_path: str | None = None,
     password: str | None = None,
     installer: Callable[..., bool] | None = None,
+    verifier: Callable[..., bool] | None = None,
 ) -> dict:
     """Provision one or more hosts; per-host failures never abort the batch.
 
     ``hosts`` is a sequence of ``(host, user)`` pairs.  Returns
     ``{"ok": n, "failed": n, "errors": {host: message}}``.
+
+    Writing the key is not the same as being able to use it: a wrong user, a
+    home directory the server will not trust, or an ``authorized_keys`` mode
+    OpenSSH rejects all leave the install looking successful. Each host is
+    therefore logged into with the managed identity before it is counted, so a
+    host reported ``ok`` is one the cluster can actually reach.
     """
 
     installer = installer or install_managed_key
+    verifier = verifier or verify_managed_login
     ok = 0
     failed = 0
     errors: dict[str, str] = {}
@@ -228,6 +234,7 @@ def provision_hosts(
                 admin_key_path=admin_key_path,
                 password=password,
             )
+            verifier(host=host, user=user)
         except (ProvisioningError, ValueError, OSError) as exc:
             failed += 1
             errors[host] = str(exc)

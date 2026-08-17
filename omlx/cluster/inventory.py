@@ -69,10 +69,6 @@ class ClusterInventory:
         return cls(hosts=hosts)
 
 
-def default_inventory_path() -> Path:
-    return _DEFAULT_INVENTORY
-
-
 def load_inventory(path: str | Path | None = None) -> ClusterInventory:
     """Load the inventory file; a missing or malformed file yields an empty list."""
 
