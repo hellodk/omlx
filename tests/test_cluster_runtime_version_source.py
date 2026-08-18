@@ -71,7 +71,11 @@ def test_omlx_version_survives_a_source_checkout_with_no_dist_info(monkeypatch):
         raise importlib.metadata.PackageNotFoundError(name)
 
     monkeypatch.setattr(importlib.metadata, "version", raise_missing)
+<<<<<<< HEAD
     assert launch._package_version("omlx") == SOURCE_VERSION
+=======
+    assert launch._package_version("omlx") == source_version
+>>>>>>> 1f1aff3018c097bcbeafca9a483e58d04dee38ba
 
 
 def _preflight_package_version():

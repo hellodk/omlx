@@ -1384,9 +1384,6 @@ _PREFLIGHT_SCRIPT = (
     # here than on the coordinator — this runs on a peer that may predate
     # omlx._version (0.1.2), and an escaping exception would fail the whole
     # preflight with a traceback instead of a readable version mismatch.
-    # The ImportError guard matters more here than on the coordinator: this
-    # runs on a peer that may predate omlx._version, and an escaping exception
-    # fails the whole preflight with a traceback instead of a version mismatch.
     "def package_version(name):\n"
     "    if name == 'omlx':\n"
     "        try:\n"
