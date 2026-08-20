@@ -163,8 +163,8 @@ def test_provision_hosts_applies_same_key_to_all_hosts(monkeypatch, tmp_path):
         admin_key_path="/tmp/nonexistent-key",
     )
     assert installed == ["192.168.1.5", "192.168.1.64"]
-    assert results["ok"] == 2
-    assert results["failed"] == 0
+    assert results.ok == 2
+    assert results.failed == 0
 
 
 def test_provision_hosts_reports_failures_without_aborting(monkeypatch):
@@ -184,9 +184,9 @@ def test_provision_hosts_reports_failures_without_aborting(monkeypatch):
         hosts=[("192.168.1.5", "operator"), ("192.168.1.64", "operator")],
         admin_key_path="/tmp/nonexistent-key",
     )
-    assert results["ok"] == 0
-    assert results["failed"] == 2
-    assert "192.168.1.5" in results["errors"]
+    assert results.ok == 0
+    assert results.failed == 2
+    assert "192.168.1.5" in results.errors
 
 
 def test_provision_hosts_partial_failure_keeps_batch_going(monkeypatch):
@@ -211,10 +211,10 @@ def test_provision_hosts_partial_failure_keeps_batch_going(monkeypatch):
         hosts=[("192.168.1.5", "operator"), ("192.168.1.64", "operator")],
         admin_key_path="/tmp/nonexistent-key",
     )
-    assert results["ok"] == 1
-    assert results["failed"] == 1
+    assert results.ok == 1
+    assert results.failed == 1
     assert installed == ["192.168.1.5"]
-    assert "192.168.1.64" in results["errors"]
+    assert "192.168.1.64" in results.errors
 
 
 def test_ask_pass_path_never_persists_password(monkeypatch, tmp_path):
@@ -276,9 +276,9 @@ def test_provision_hosts_fails_a_host_whose_installed_key_cannot_log_in():
     )
 
     assert verified == ["192.168.1.5"]
-    assert results["ok"] == 0
-    assert results["failed"] == 1
-    assert "rejected" in results["errors"]["192.168.1.5"]
+    assert results.ok == 0
+    assert results.failed == 1
+    assert "rejected" in results.errors["192.168.1.5"]
 
 
 def test_provision_hosts_verifies_every_host_it_reports_ok():
@@ -291,4 +291,34 @@ def test_provision_hosts_verifies_every_host_it_reports_ok():
     )
 
     assert verified == ["192.168.1.5", "192.168.1.64"]
-    assert results["ok"] == 2
+    assert results.ok == 2
+
+
+def test_provision_result_to_dict():
+    from omlx.cluster.provisioning import ProvisionResult
+
+    result = ProvisionResult(ok=2, failed=1, errors={"192.168.1.5": "timeout"})
+    d = result.to_dict()
+    assert d == {"ok": 2, "failed": 1, "errors": {"192.168.1.5": "timeout"}}
+
+
+def test_provision_hosts_dry_run_skips_ssh(monkeypatch):
+    calls = []
+
+    def recording_install(host, user, **kwargs):
+        calls.append(host)
+        return True
+
+    monkeypatch.setattr(
+        "omlx.cluster.provisioning.install_managed_key",
+        recording_install,
+    )
+
+    results = provision_hosts(
+        hosts=[("192.168.1.5", "operator"), ("192.168.1.64", "operator")],
+        admin_key_path="/tmp/key",
+        dry_run=True,
+    )
+    assert calls == []
+    assert results.ok == 2
+    assert results.failed == 0

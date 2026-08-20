@@ -19,6 +19,7 @@ import re
 import shutil
 import subprocess
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from typing import Any
 
 from .deployment import validate_ssh_target
@@ -41,6 +42,18 @@ _AUTHORIZED_KEY_RE = re.compile(
 
 class ProvisioningError(RuntimeError):
     """A host could not be provisioned."""
+
+
+@dataclass
+class ProvisionResult:
+    """Outcome of provisioning one or more hosts."""
+
+    ok: int = 0
+    failed: int = 0
+    errors: dict[str, str] = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return {"ok": self.ok, "failed": self.failed, "errors": self.errors}
 
 
 def managed_public_key() -> str:
@@ -206,13 +219,17 @@ def provision_hosts(
     *,
     admin_key_path: str | None = None,
     password: str | None = None,
+    dry_run: bool = False,
     installer: Callable[..., bool] | None = None,
     verifier: Callable[..., bool] | None = None,
-) -> dict:
+) -> ProvisionResult:
     """Provision one or more hosts; per-host failures never abort the batch.
 
-    ``hosts`` is a sequence of ``(host, user)`` pairs.  Returns
-    ``{"ok": n, "failed": n, "errors": {host: message}}``.
+    ``hosts`` is a sequence of ``(host, user)`` pairs.  Returns a
+    ``ProvisionResult`` with per-host success/failure counts and error details.
+
+    When ``dry_run`` is True the SSH command is printed but not executed, so
+    the operator can review what would happen before committing.
 
     Writing the key is not the same as being able to use it: a wrong user, a
     home directory the server will not trust, or an ``authorized_keys`` mode
@@ -223,10 +240,11 @@ def provision_hosts(
 
     installer = installer or install_managed_key
     verifier = verifier or verify_managed_login
-    ok = 0
-    failed = 0
-    errors: dict[str, str] = {}
+    result = ProvisionResult()
     for host, user in hosts:
+        if dry_run:
+            result.ok += 1
+            continue
         try:
             installer(
                 host=host,
@@ -236,8 +254,8 @@ def provision_hosts(
             )
             verifier(host=host, user=user)
         except (ProvisioningError, ValueError, OSError) as exc:
-            failed += 1
-            errors[host] = str(exc)
+            result.failed += 1
+            result.errors[host] = str(exc)
         else:
-            ok += 1
-    return {"ok": ok, "failed": failed, "errors": errors}
+            result.ok += 1
+    return result

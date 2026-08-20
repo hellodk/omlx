@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from omlx.settings import ServerSettings
+
 from .ssh_identity import _SSH_PORT
 
 _MAX_WORKERS = 32
@@ -89,7 +90,12 @@ def default_sweep_ports() -> tuple[int, ...]:
 
 
 def expand_cidr(cidr: str) -> list[str]:
-    """Expand a CIDR string to its list of IPv4 addresses."""
+    """Expand a CIDR string to its list of IPv4 addresses.
+
+    Uses ``strict=False`` so non-network addresses like ``192.168.1.5/24`` are
+    accepted.  ``network.hosts()`` excludes the network and broadcast addresses
+    (``.0`` and ``.255`` for /24), so only usable host addresses are returned.
+    """
 
     try:
         network = ipaddress.ip_network(cidr.strip(), strict=False)

@@ -121,36 +121,24 @@ def add_host(
 
     existing = inventory.get(name)
     if existing is not None:
-        hosts = [
-            InventoryHost(
-                name=host.name,
-                user=resolved_user if host.name == name else host.user,
-                port=int(port) if host.name == name else host.port,
-                group=group if host.name == name else host.group,
-                provisioned=(
-                    provisioned if host.name == name else host.provisioned
-                ),
-                discovered_from=(
-                    discovered_from if host.name == name else host.discovered_from
-                ),
-            )
-            for host in inventory.hosts
-        ]
-        return ClusterInventory(hosts=hosts)
+        existing.user = resolved_user
+        existing.port = int(port)
+        existing.group = group
+        existing.provisioned = provisioned
+        existing.discovered_from = discovered_from
+        return inventory
 
-    return ClusterInventory(
-        hosts=[
-            *inventory.hosts,
-            InventoryHost(
-                name=name,
-                user=resolved_user,
-                port=int(port),
-                group=group,
-                provisioned=provisioned,
-                discovered_from=discovered_from,
-            ),
-        ]
+    inventory.hosts.append(
+        InventoryHost(
+            name=name,
+            user=resolved_user,
+            port=int(port),
+            group=group,
+            provisioned=provisioned,
+            discovered_from=discovered_from,
+        )
     )
+    return inventory
 
 
 def remove_host(inventory: ClusterInventory, name: str) -> bool:

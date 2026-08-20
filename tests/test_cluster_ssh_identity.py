@@ -39,7 +39,8 @@ def test_default_ssh_user_falls_back_to_empty_when_no_env(monkeypatch):
 
     monkeypatch.setattr(mod.getpass, "getuser", raise_oserror)
     monkeypatch.setattr(os, "environ", {})
-    assert default_ssh_user() == ""
+    with pytest.raises(RuntimeError, match="cannot determine SSH user"):
+        default_ssh_user()
 
 
 def test_generate_ssh_key_pair_tightens_lax_existing_private_key(tmp_path, monkeypatch):
@@ -68,6 +69,36 @@ def test_generate_ssh_key_pair_tightens_lax_existing_private_key(tmp_path, monke
     mode = stat.S_IMODE(key_path.stat().st_mode)
     assert mode == 0o600
     assert pair.public_key.endswith("test@example.com")
+
+
+def test_ensure_key_permissions_raises_when_chmod_fails_on_lax_file(tmp_path, monkeypatch):
+    from omlx.cluster.ssh_keys import ensure_key_permissions
+
+    key_path = tmp_path / "omlx_cluster"
+    key_path.write_text("fake-key")
+    os.chmod(key_path, 0o644)
+
+    real_chmod = os.chmod
+
+    def failing_chmod(path, mode):
+        if str(path) == str(key_path):
+            raise OSError("permission denied")
+        return real_chmod(path, mode)
+
+    monkeypatch.setattr(os, "chmod", failing_chmod)
+    with pytest.raises(RuntimeError, match="group/world-readable"):
+        ensure_key_permissions(key_path)
+
+
+def test_ensure_key_permissions_noop_when_already_correct(tmp_path):
+    from omlx.cluster.ssh_keys import ensure_key_permissions
+
+    key_path = tmp_path / "omlx_cluster"
+    key_path.write_text("fake-key")
+    os.chmod(key_path, 0o600)
+
+    ensure_key_permissions(key_path)
+    assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
 
 
 def shutil_which(cmd):
