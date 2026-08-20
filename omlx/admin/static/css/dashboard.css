@@ -1075,6 +1075,26 @@
         }
     }
 
+    /* === Cluster: card shell === */
+    .cluster-card {
+        background-color: var(--bg-primary);
+        border: 1px solid var(--border-faint);
+        border-radius: 1rem;
+        overflow: hidden;
+    }
+    .cluster-card__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 1rem 1.5rem;
+        background-color: var(--bg-tertiary);
+        border-bottom: 1px solid var(--border-faint);
+    }
+    .cluster-card__body {
+        padding: 1.5rem;
+    }
+
     /* === Cluster: KV cache gauge === */
     .cluster-kv-gauge {
         width: 100%;
