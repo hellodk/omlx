@@ -103,6 +103,28 @@ def ssh_public_key_fingerprint(public_key: str) -> str:
     return _key_fingerprint(public_key)
 
 
+def ensure_key_permissions(key_path: Path | None = None) -> None:
+    """Ensure the managed private key has restrictive permissions (0o600).
+
+    SSH refuses group/world-readable private keys.  This function tightens
+    permissions on an existing key and raises if it cannot.  Call this before
+    using the key, rather than embedding permission changes in ``generate``.
+    """
+
+    if key_path is None:
+        key_path = _SSH_KEY_PATH
+    if not key_path.exists():
+        return
+    try:
+        os.chmod(key_path, 0o600)
+    except OSError:
+        if key_path.stat().st_mode & 0o077:
+            raise RuntimeError(
+                f"managed private key {key_path} is group/world-readable; "
+                f"refusing to use it: chmod 600 {key_path}"
+            ) from None
+
+
 def generate_ssh_key_pair(
     *,
     key_path: Path | None = None,
@@ -115,17 +137,9 @@ def generate_ssh_key_pair(
         key_path = _SSH_KEY_PATH
 
     if key_path.exists() and not overwrite:
-        # Load existing key — tighten permissions if we can, since ssh refuses
-        # group/world-readable private keys and we never want to silently use
-        # a laxly-permissioned identity.
-        try:
-            os.chmod(key_path, 0o600)
-        except OSError:
-            if (key_path.stat().st_mode & 0o077):
-                raise RuntimeError(
-                    f"managed private key {key_path} is group/world-readable; "
-                    f"refusing to use it: chmod 600 {key_path}"
-                ) from None
+        # Tighten permissions if needed — ssh refuses group/world-readable
+        # private keys.
+        ensure_key_permissions(key_path)
         pubkey_path = Path(str(key_path) + ".pub")
         if not pubkey_path.exists():
             raise RuntimeError(f"private key exists but public key missing: {key_path}")

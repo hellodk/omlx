@@ -39,6 +39,12 @@ def cluster_ssh_options(
         "BatchMode=yes",
         "PasswordAuthentication=no",
         "KbdInteractiveAuthentication=no",
+        # Skip GSSAPI negotiation which can hang 30-90s on corporate Macs
+        # before falling through to publickey.
+        "GSSAPIAuthentication=no",
+        # Fail fast with a key error instead of walking the full auth list
+        # when the managed identity is not installed on the target host.
+        "PreferredAuthentications=publickey",
         # Automatic cluster fabric discovery currently emits IPv4 addresses.
         # Keep the SSH control channel on the same address family instead of
         # letting a .local name select an unrelated or unroutable AAAA record.

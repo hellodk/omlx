@@ -16,9 +16,19 @@ _MANAGED_IDENTITY = "~/.ssh/omlx_cluster"
 
 
 def default_ssh_user() -> str:
-    """Return the current OS login name used as the SSH user by default."""
+    """Return the current OS login name used as the SSH user by default.
+
+    Raises ``RuntimeError`` when the login name cannot be determined, so that
+    callers are forced to specify ``--user`` rather than producing a silent
+    ``@host`` SSH target.
+    """
 
     try:
-        return getpass.getuser()
+        user = getpass.getuser()
     except OSError:
-        return os.environ.get("USER") or os.environ.get("LOGNAME", "")
+        user = os.environ.get("USER") or os.environ.get("LOGNAME", "")
+    if not user:
+        raise RuntimeError(
+            "cannot determine SSH user; set --user or the USER environment variable"
+        )
+    return user

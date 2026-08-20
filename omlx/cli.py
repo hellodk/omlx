@@ -1120,6 +1120,7 @@ def cluster_command(args) -> int:
                 selected,
                 admin_key_path=args.key,
                 password=password,
+                dry_run=getattr(args, "dry_run", False),
             )
         except (ProvisioningError, ValueError) as exc:
             print(f"Provisioning failed: {exc}", file=sys.stderr)
@@ -1127,7 +1128,7 @@ def cluster_command(args) -> int:
         finally:
             password = None
 
-        if results["failed"] == 0 and not args.json:
+        if results.failed == 0 and not args.json and not getattr(args, "dry_run", False):
             from .cluster.inventory import add_host, load_inventory, save_inventory
 
             inventory = load_inventory()
@@ -1146,13 +1147,17 @@ def cluster_command(args) -> int:
             save_inventory(inventory)
 
         if args.json:
-            print(json.dumps(results, indent=2, sort_keys=True))
+            print(json.dumps(results.to_dict(), indent=2, sort_keys=True))
+        elif getattr(args, "dry_run", False):
+            for host, _user in selected:
+                print(f"  {host:<24} would provision")
+            print(f"Dry run: {len(selected)} host(s) would be provisioned")
         else:
-            for host, message in results["errors"].items():
+            for host, message in results.errors.items():
                 print(f"  {host:<24} FAILED: {message}")
-            print(f"Provisioned {results['ok']} host(s), "
-                  f"{results['failed']} failed")
-        return 0 if results["failed"] == 0 else 1
+            print(f"Provisioned {results.ok} host(s), "
+                  f"{results.failed} failed")
+        return 0 if results.failed == 0 else 1
 
     print(
         "Unknown cluster action. Available: status, worker-smoke, "
@@ -1728,6 +1733,11 @@ Example directory structure:
         "--json",
         action="store_true",
         help="Emit machine-readable JSON",
+    )
+    cluster_provision_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be provisioned without executing SSH commands",
     )
 
     # Split launch's forwarding separator before argparse. parse_known_args()
