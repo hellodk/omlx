@@ -186,6 +186,58 @@
             </div>
         </div>
 
+        <!-- Error Budget -->
+        <div x-show="clusterErrorBudget && clusterErrorBudget.slos && clusterErrorBudget.slos.length" x-cloak class="mb-6">
+            <div class="flex items-center gap-2 mb-3">
+                <i data-lucide="battery-medium" class="w-4 h-4 text-neutral-500"></i>
+                <h3 class="text-sm font-semibold text-neutral-900">Error Budget</h3>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider"
+                      :class="clusterErrorBudget.can_deploy
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-red-100 text-red-800'"
+                      x-text="clusterErrorBudget.can_deploy ? 'deploy allowed' : 'deploy blocked'"></span>
+            </div>
+            <div x-show="(clusterErrorBudget.blocking_slos || []).length"
+                 class="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-800">
+                Blocked by:
+                <span class="font-semibold" x-text="(clusterErrorBudget.blocking_slos || []).join(', ')"></span>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <template x-for="budget in (clusterErrorBudget.slos || [])" :key="budget.slo_name">
+                    <div class="rounded-xl border p-3 transition-colors"
+                         :class="{
+                             'border-green-200 bg-green-50': budget.budget_remaining_pct >= 50,
+                             'border-amber-200 bg-amber-50': budget.budget_remaining_pct >= 10 && budget.budget_remaining_pct < 50,
+                             'border-red-200 bg-red-50': budget.budget_remaining_pct < 10
+                         }">
+                        <div class="text-xs font-semibold text-neutral-900 mb-1.5" x-text="budget.slo_name"></div>
+                        <div class="flex items-baseline gap-1.5">
+                            <span class="text-lg font-bold tabular-nums"
+                                  :class="{
+                                      'text-green-700': budget.budget_remaining_pct >= 50,
+                                      'text-amber-700': budget.budget_remaining_pct >= 10 && budget.budget_remaining_pct < 50,
+                                      'text-red-700': budget.budget_remaining_pct < 10
+                                  }"
+                                  x-text="budget.budget_remaining_pct.toFixed(1) + '%'"></span>
+                            <span class="text-[10px] text-neutral-500">budget left</span>
+                        </div>
+                        <div class="mt-1.5 flex items-center gap-3 text-[10px] text-neutral-600">
+                            <span>Burn: <span class="font-semibold tabular-nums" x-text="budget.consumption_rate.toFixed(2) + 'x'"></span></span>
+                            <span x-show="budget.time_to_exhaustion_hours != null">
+                                Empty in:
+                                <span class="font-semibold"
+                                      x-text="budget.time_to_exhaustion_hours < 1
+                                          ? Math.round(budget.time_to_exhaustion_hours * 60) + 'm'
+                                          : Math.round(budget.time_to_exhaustion_hours) + 'h'"></span>
+                            </span>
+                        </div>
+                        <div class="mt-1 text-[10px] text-neutral-500 font-mono"
+                             x-text="budget.sample_count + ' samples / ' + Math.round(budget.window_seconds / 3600) + 'h window'"></div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
         <!-- Capacity Planning -->
         <div x-show="clusterCapacity && clusterCapacity.nodes && clusterCapacity.nodes.length" x-cloak class="mb-6">
             <div class="flex items-center gap-2 mb-3">
@@ -1383,10 +1435,6 @@
                                               x-text="clusterIncidentAge(event.ts)"></span>
                                     </div>
                                 </template>
-                            </div>
-                        </div>
-                    </div>
-                </div>
                             </div>
                         </div>
                     </div>

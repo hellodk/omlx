@@ -34,11 +34,20 @@ _CLUSTER_URL = re.compile(
 
 
 def _registered_routes() -> set[str]:
-    from omlx.cluster import routes
+    """Every cluster path the server actually mounts.
+
+    ``routes.router`` is not the whole surface: ``_register_cluster_routes`` in
+    ``omlx/server.py`` mounts sibling routers under the same prefix, and a route
+    that only lives in one of those is still a real route. Collecting just the
+    one router made the dashboard's ``/prefix-cache`` call look like a 404.
+    """
+
+    from omlx.cluster import prefix_cache_api, routes
 
     return {
         re.sub(r"\{[^{}]+\}", "{parameter}", route.path)
-        for route in routes.router.routes
+        for router in (routes.router, prefix_cache_api.router)
+        for route in router.routes
         if getattr(route, "path", None)
     }
 
@@ -230,6 +239,20 @@ def test_no_unreachable_functions_in_the_cluster_package():
         # Peer import preflight, exposed ahead of the /autoconfigure handler
         # that will call it alongside preflight_issues.
         ("autoconfigure.py", "peer_import_issues"),
+        # Injection seam for the module-level planner. Production reaches the
+        # planner through get_capacity_planner, which lazily builds one; only
+        # tests need to substitute it.
+        ("capacity_api.py", "set_capacity_planner"),
+        # SRE structured-event emitters, landed complete but not yet called
+        # from the deployment, worker and routing paths they describe. Wiring
+        # each to its lifecycle point is follow-up work — until then they are
+        # a logging vocabulary with no speakers.
+        ("structured_events.py", "log_cluster_deployment_started"),
+        ("structured_events.py", "log_cluster_deployment_completed"),
+        ("structured_events.py", "log_worker_joined"),
+        ("structured_events.py", "log_worker_left"),
+        ("structured_events.py", "log_collective_operation"),
+        ("structured_events.py", "log_inference_routed"),
     }
 
     sources = {
