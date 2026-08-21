@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -269,6 +270,10 @@ class TestProcFallbacks:
         assert isinstance(result, float)
         assert 0.0 <= result <= 100.0
 
+    @pytest.mark.skipif(
+        not Path("/proc/meminfo").exists(),
+        reason="/proc/meminfo is Linux-only; macOS reports 0 from this fallback",
+    )
     def test_read_proc_mem_returns_memory(self) -> None:
         mem = _read_proc_mem()
         assert mem.total > 0
@@ -292,9 +297,9 @@ class TestCapacityAPISchema:
         try:
             import asyncio
 
-            response = asyncio.get_event_loop().run_until_complete(
-                _call_capacity_endpoint()
-            )
+            # get_event_loop() raises "no current event loop" once nothing has
+            # installed one for this thread, which is every Python from 3.12.
+            response = asyncio.run(_call_capacity_endpoint())
         finally:
             set_capacity_planner(None)
 
