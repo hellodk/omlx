@@ -19,6 +19,34 @@ logger = logging.getLogger(__name__)
 # Interval between periodic saves of all-time stats (seconds)
 _SAVE_INTERVAL = 300
 
+# Cumulative bucket upper bounds (seconds) for the latency histograms.
+# Standard Prometheus client defaults, so scraped output is directly
+# comparable with histograms from the wider ecosystem.
+HISTOGRAM_BUCKETS = (
+    0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+)
+
+
+def _new_histogram() -> Dict[str, Any]:
+    """Per-bucket counts are non-cumulative; the renderer cumulates."""
+
+    return {
+        "counts": [0] * len(HISTOGRAM_BUCKETS),
+        "count": 0,
+        "sum": 0.0,
+    }
+
+
+def _histogram_observe(histogram: Dict[str, Any], value: float) -> None:
+    histogram["count"] += 1
+    histogram["sum"] += value
+    # Store non-cumulatively (first bound >= value); the exposition
+    # renderer produces the cumulative representation.
+    for index, bound in enumerate(HISTOGRAM_BUCKETS):
+        if value <= bound:
+            histogram["counts"][index] += 1
+            break
+
 
 class ServerMetrics:
     """
@@ -55,6 +83,14 @@ class ServerMetrics:
         self.preflight_rejections: Dict[str, int] = {
             "hard_limit": 0,
             "admission_paused": 0,
+        }
+
+        # Latency distributions (session scope). Fed from the same
+        # record_request_complete call sites that feed the counters, so no
+        # additional wiring is needed to make these real.
+        self._histograms: Dict[str, Dict[str, Any]] = {
+            "prefill_duration_seconds": _new_histogram(),
+            "generation_duration_seconds": _new_histogram(),
         }
 
         # All-time totals (persisted across restarts)
@@ -209,6 +245,18 @@ class ServerMetrics:
             # Periodic save
             self._maybe_save_alltime()
 
+            # Latency distributions (session scope)
+            if prefill_duration > 0:
+                _histogram_observe(
+                    self._histograms["prefill_duration_seconds"],
+                    prefill_duration,
+                )
+            if generation_duration > 0:
+                _histogram_observe(
+                    self._histograms["generation_duration_seconds"],
+                    generation_duration,
+                )
+
     def record_preflight_rejection(self, reason: str) -> None:
         """Increment the preflight-rejection counter for ``reason``.
 
@@ -315,6 +363,40 @@ class ServerMetrics:
                 uptime,
             )
 
+    def export_counters(self) -> Dict[str, Any]:
+        """One lock-consistent snapshot of everything the exposition renders.
+
+        The renderer must not take this lock per field: a torn read across
+        totals and histograms would let a scrape report requests that its
+        own latency buckets have never seen.
+        """
+
+        with self._lock:
+            return {
+                "totals": {
+                    "requests": self.total_requests,
+                    "prompt_tokens": self.total_prompt_tokens,
+                    "completion_tokens": self.total_completion_tokens,
+                    "cached_tokens": self.total_cached_tokens,
+                    "prefill_duration": self.total_prefill_duration,
+                    "generation_duration": self.total_generation_duration,
+                },
+                "per_model": {
+                    model: dict(counters)
+                    for model, counters in self._per_model.items()
+                },
+                "preflight_rejections": dict(self.preflight_rejections),
+                "histograms": {
+                    name: {
+                        "counts": list(data["counts"]),
+                        "count": data["count"],
+                        "sum": data["sum"],
+                    }
+                    for name, data in self._histograms.items()
+                },
+                "uptime_seconds": time.time() - self._start_time,
+            }
+
     def clear_metrics(self) -> None:
         """Clear session metrics. Thread-safe."""
         with self._lock:
@@ -325,6 +407,8 @@ class ServerMetrics:
             self.total_prefill_duration = 0.0
             self.total_generation_duration = 0.0
             self._per_model.clear()
+            for name in self._histograms:
+                self._histograms[name] = _new_histogram()
 
     def clear_alltime_metrics(self) -> None:
         """Clear all-time metrics and delete the persisted file. Thread-safe."""

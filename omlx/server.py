@@ -658,6 +658,12 @@ from .cluster.observability_api import register_observability_routes
 
 register_observability_routes(app, require_admin)
 
+# Scrape endpoint for Prometheus / VictoriaMetrics. Registered
+# unconditionally: single-node hosts are monitored too.
+from .metrics_api import register_metrics_routes
+
+register_metrics_routes(app)
+
 _cluster_routes_registered = False
 
 
