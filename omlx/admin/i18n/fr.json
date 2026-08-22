@@ -31,6 +31,7 @@
   "navbar.admin": "Admin",
   "navbar.tab.status": "Dashboard",
   "navbar.tab.cluster": "Cluster",
+  "navbar.tab.incidents": "Incidents",
   "navbar.tab.models": "Modèles",
   "navbar.tab.settings": "Paramètres",
   "navbar.tab.logs": "Logs",

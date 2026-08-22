@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from omlx.cluster import routes
+from omlx.cluster import observability_api
 from omlx.cluster.enrollment import ClusterEnrollmentStore
 from omlx.cluster.models import (
     ClusterStatus,
@@ -46,12 +47,16 @@ def _status() -> ClusterStatus:
 def _client() -> TestClient:
     app = FastAPI()
     app.include_router(routes.router)
+    # Production registers these unconditionally next to the admin router;
+    # incidents/slos/error-budget live there since the Incidents tab.
+    app.include_router(observability_api.slo_router)
     return TestClient(app)
 
 
 def _enrollment_client() -> TestClient:
     app = FastAPI()
     app.include_router(routes.router)
+    app.include_router(observability_api.slo_router)
     app.include_router(routes.join_router)
     return TestClient(app)
 

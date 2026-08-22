@@ -651,6 +651,13 @@ set_admin_getters(
 )
 app.include_router(admin_router)
 
+# SLO / error-budget / incident surfaces answer on every deployment — a
+# single-node host has no distributed-inference flag to flip, and its
+# dashboard still renders the Incidents tab. Admin auth only.
+from .cluster.observability_api import register_observability_routes
+
+register_observability_routes(app, require_admin)
+
 _cluster_routes_registered = False
 
 
