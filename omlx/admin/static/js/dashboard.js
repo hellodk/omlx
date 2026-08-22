@@ -86,7 +86,7 @@
     const DFLASH_DRAFTER_CONFIG_MODEL_TYPES = new Set([
         'muse_glimmer_assistant',
     ]);
-    const DASHBOARD_MAIN_TABS = new Set(['status', 'cluster', 'settings', 'models', 'logs', 'bench']);
+    const DASHBOARD_MAIN_TABS = new Set(['status', 'cluster', 'incidents', 'settings', 'models', 'logs', 'bench']);
     const DASHBOARD_SETTINGS_TABS = new Set(['global', 'integrations', 'models']);
     const DASHBOARD_MODELS_TABS = new Set(['manager', 'downloader', 'quantizer', 'uploader']);
     const DASHBOARD_BENCH_TABS = new Set(['throughput', 'accuracy', 'context']);
@@ -901,6 +901,9 @@
                     } else if (this.mainTab === 'cluster') {
                         this.refreshClusterExperience();
                         this.startClusterRefresh();
+                    } else if (this.mainTab === 'incidents') {
+                        this.refreshIncidentsExperience();
+                        this.startIncidentsRefresh();
                     }
                 });
             },
@@ -949,6 +952,16 @@
                     await this.loadBenchState();
                     await this.loadAccState();
                     await this.loadCtxBenchState();
+                }
+                if (value === 'incidents') {
+                    await Promise.all([
+                        this.loadClusterIncidents(),
+                        this.loadClusterSlos(),
+                        this.loadClusterErrorBudget(),
+                    ]);
+                    this.startIncidentsRefresh();
+                } else {
+                    this.stopIncidentsRefresh();
                 }
                 if (value === 'cluster') {
                     // Render remembered Macs before Bonjour pays its discovery
@@ -1529,6 +1542,27 @@
                 if (this._clusterRefreshTimer) {
                     clearInterval(this._clusterRefreshTimer);
                     this._clusterRefreshTimer = null;
+                }
+            },
+
+            // The incidents tab polls only the three read-only surfaces, so
+            // it keeps a lighter cadence than the cluster experience.
+            startIncidentsRefresh() {
+                if (this._incidentsRefreshTimer) return;
+                this._incidentsRefreshTimer = setInterval(
+                    () => this.refreshIncidentsExperience(), 5000);
+            },
+
+            async refreshIncidentsExperience() {
+                await this.loadClusterIncidents();
+                await this.loadClusterSlos();
+                await this.loadClusterErrorBudget();
+            },
+
+            stopIncidentsRefresh() {
+                if (this._incidentsRefreshTimer) {
+                    clearInterval(this._incidentsRefreshTimer);
+                    this._incidentsRefreshTimer = null;
                 }
             },
 

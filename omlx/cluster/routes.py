@@ -1838,20 +1838,9 @@ def get_deployment_gate() -> DeploymentGate:
     return _deployment_gate
 
 
-@router.get("/slos")
-async def cluster_slos():
-    """Return current SLO compliance status for all defined objectives."""
-
-    tracker = await asyncio.to_thread(get_slo_tracker)
-    return tracker.status_dict()
-
-
-@router.get("/error-budget")
-async def cluster_error_budget():
-    """Return per-SLO error budget status and deployment readiness."""
-
-    tracker = await asyncio.to_thread(get_error_budget_tracker)
-    return tracker.budget_status()
+# The read-only SLO / error-budget / incident surfaces moved to
+# cluster/observability_api.py: they must answer on a single-node host too,
+# so they cannot sit behind this router's distributed-inference gate.
 
 
 @router.get("/runtime")
@@ -1965,45 +1954,6 @@ async def cluster_diagnostics():
         "errors": errors,
     }
     return _redact_diagnostic(payload)
-
-
-@router.get("/incidents")
-async def cluster_incidents(since: int = Query(default=0, ge=0)):
-    """Return incidents after the caller's cursor, plus the new cursor.
-
-    The ``since`` cursor makes monotonic merge a server-enforced property: a
-    poll can only ever add records the browser has not seen, so no refresh can
-    wipe error state. Dismissal (below) is the only removal path.
-    """
-
-    try:
-        store = get_cluster_incidents()
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    incidents = [incident.to_dict() for incident in store.list(since_seq=since)]
-    for item in incidents:
-        item["message"] = _redact_diagnostic(item["message"])
-    return {
-        "incidents": incidents,
-        "latest_seq": store.latest_seq(),
-        # Identity of the seq numbering. A corrupt-log reset restarts seq at
-        # 1 under a new epoch; a client holding an old cursor must detect the
-        # change and restart from 0 instead of going silent forever.
-        "epoch": store.epoch,
-    }
-
-
-@router.post("/incidents/{incident_id}/dismiss")
-async def dismiss_cluster_incident(incident_id: str):
-    """Mark one incident dismissed — server-owned, so it survives reloads."""
-
-    try:
-        store = get_cluster_incidents()
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    if not store.dismiss(incident_id):
-        raise HTTPException(status_code=404, detail="Unknown incident.")
-    return {"ok": True}
 
 
 @router.get("/discover")
