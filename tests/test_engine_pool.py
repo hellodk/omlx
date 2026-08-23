@@ -3799,3 +3799,124 @@ class TestLoadRefusalNamesBindingCeiling:
         assert "dynamic memory ceiling" in message
         assert "close other apps" in message.lower()
         assert "lower memory_guard_tier" not in message
+
+
+# ---------------------------------------------------------------------------
+# Same-model variant retirement (#27): two quants of one base model must not
+# sit resident together -- loading -8bit retires an idle -4bit sibling
+# regardless of headroom math.
+# ---------------------------------------------------------------------------
+
+
+def test_model_family_key_collapses_quant_variants():
+    from omlx.engine_pool import _model_family_key
+
+    gib_pair = (
+        "mlx-community--Qwen3.5-4B-MLX-4bit",
+        "mlx-community--Qwen3.5-4B-MLX-8bit",
+    )
+    llama_pair = (
+        "mlx-community--Meta-Llama-3.1-8B-Instruct-8bit",
+        "mlx-community--Meta-Llama-3.1-8B-Instruct",
+    )
+
+    assert _model_family_key(*gib_pair[:1]) == _model_family_key(gib_pair[1])
+    assert _model_family_key(llama_pair[0]) == _model_family_key(llama_pair[1])
+    assert _model_family_key(gib_pair[0]) != _model_family_key(llama_pair[0])
+
+
+def test_find_idle_family_siblings_filters_correctly():
+    from omlx.engine_pool import EngineEntry, EnginePool
+
+    pool = _make_pool(ceiling=12 * 1024**3)
+
+    def entry(mid):
+        e = MagicMock()
+        return EngineEntry(
+            model_id=mid,
+            model_path=f"/models/{mid}",
+            model_type="llm",
+            engine_type="batched",
+            estimated_size=1024,
+            engine=e,
+        )
+
+    idle_sibling = "mlx-community--Qwen3.5-4B-MLX-4bit"
+    busy_sibling = "mlx-community--Qwen3.5-8bit-MLX-4bit"  # different base
+    target = "mlx-community--Qwen3.5-4B-MLX-8bit"
+
+    pool._entries[idle_sibling] = entry(idle_sibling)
+    pool._entries[busy_sibling] = entry(busy_sibling)
+    pool._entries[target] = entry(target)
+
+    with patch.object(pool, "_entry_has_active_requests", return_value=False), \
+         patch.object(pool, "_resolve_scheduler_from_engine", return_value=None):
+        siblings = pool._find_idle_family_siblings(target)
+        assert siblings == [idle_sibling]
+
+        # A pinned or in-use same-family engine is never a sibling victim.
+        pool._entries[idle_sibling].is_pinned = True
+        assert pool._find_idle_family_siblings(target) == []
+        pool._entries[idle_sibling].is_pinned = False
+        pool._entries[idle_sibling].in_use = 1
+        assert pool._find_idle_family_siblings(target) == []
+        pool._entries[idle_sibling].in_use = 0
+
+        # Active requests on the sibling block retirement too.
+        with patch.object(
+            pool, "_entry_has_active_requests", return_value=True
+        ):
+            assert pool._find_idle_family_siblings(target) == []
+
+
+@pytest.mark.asyncio
+async def test_get_engine_unloads_idle_variant_before_loading():
+    """Admission must retire the idle -4bit before the -8bit allocates."""
+    from omlx.engine_pool import EngineEntry
+
+    pool = _make_pool(ceiling=12 * 1024**3)
+
+    idle_id = "mlx-community--Qwen3.5-4B-MLX-4bit"
+    target_id = "mlx-community--Qwen3.5-4B-MLX-8bit"
+
+    idle_engine = MagicMock()
+    idle_entry = EngineEntry(
+        model_id=idle_id,
+        model_path=f"/models/{idle_id}",
+        model_type="llm",
+        engine_type="batched",
+        estimated_size=3 * 1024**3,
+        engine=idle_engine,
+    )
+    pool._entries[idle_id] = idle_entry
+    pool._entries[target_id] = EngineEntry(
+        model_id=target_id,
+        model_path=f"/models/{target_id}",
+        model_type="llm",
+        engine_type="batched",
+        estimated_size=5 * 1024**3,
+    )
+
+    unloads: list[str] = []
+
+    async def fake_unload(model_id, **kwargs):
+        unloads.append(model_id)
+        if model_id == idle_id:
+            pool._entries[idle_id].engine = None
+
+    target_engine = MagicMock()
+
+    async def fake_load(*args, **kwargs):
+        pool._entries[target_id].engine = target_engine
+
+    with patch.object(pool, "_unload_engine", side_effect=fake_unload), \
+         patch.object(pool, "_entry_has_active_requests", return_value=False), \
+         patch.object(pool, "_resolve_scheduler_from_engine", return_value=None), \
+         patch.object(pool, "_load_engine", side_effect=fake_load), \
+         patch.object(pool, "_validate_llm_engine_ready"):
+        await pool.get_engine(target_id)
+
+    assert unloads == [idle_id], (
+        f"expected the idle 4bit variant unloaded first, got {unloads}"
+    )
+    assert pool._entries[target_id].engine is target_engine
