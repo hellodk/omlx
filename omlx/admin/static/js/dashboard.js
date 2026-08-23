@@ -895,6 +895,7 @@
                     if (document.hidden) {
                         this.stopStatsRefresh();
                         this.stopClusterRefresh();
+                        this.stopIncidentsRefresh();
                     } else if (this.mainTab === 'status') {
                         this.loadStats();
                         this.startStatsRefresh();
@@ -1554,9 +1555,19 @@
             },
 
             async refreshIncidentsExperience() {
-                await this.loadClusterIncidents();
-                await this.loadClusterSlos();
-                await this.loadClusterErrorBudget();
+                // setInterval does not await: on a slow server a fresh poll
+                // would stack on top of a still-running one. Skip instead.
+                if (this._incidentsRefreshInFlight) return;
+                this._incidentsRefreshInFlight = true;
+                try {
+                    await Promise.all([
+                        this.loadClusterIncidents(),
+                        this.loadClusterSlos(),
+                        this.loadClusterErrorBudget(),
+                    ]);
+                } finally {
+                    this._incidentsRefreshInFlight = false;
+                }
             },
 
             stopIncidentsRefresh() {

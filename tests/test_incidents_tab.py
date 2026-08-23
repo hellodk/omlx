@@ -24,6 +24,7 @@ NAVBAR_HTML = ROOT / "omlx/admin/templates/dashboard/_navbar.html"
 CLUSTER_HTML = ROOT / "omlx/admin/templates/dashboard/_cluster.html"
 INCIDENTS_HTML = ROOT / "omlx/admin/templates/dashboard/_incidents.html"
 DASHBOARD_JS = ROOT / "omlx/admin/static/js/dashboard.js"
+DASHBOARD_CSS = ROOT / "omlx/admin/static/css/dashboard.css"
 
 SERVER_PY = ROOT / "omlx/server.py"
 
@@ -248,3 +249,60 @@ def test_incidents_pills_use_dark_safe_badge_colors():
         "bg-amber-100 text-amber-800",
     ):
         assert bad_pair not in incidents, f"unmapped dark-mode pill pair: {bad_pair}"
+
+
+# ---------------------------------------------------------------------------
+# Fable review, PR #16: an empty SLO window must never render as green
+# ---------------------------------------------------------------------------
+
+
+def test_no_samples_never_render_as_healthy():
+    """The no_data state must exist in the template, card and pill alike."""
+
+    incidents = _read(INCIDENTS_HTML)
+
+    assert incidents.count("'no_data'") >= 4, (
+        "expected neutral styling for the overall pill, cards, labels"
+    )
+    assert "No samples in window" in incidents
+
+
+def test_null_slo_numerics_are_guarded_in_the_card():
+    """compliance_pct/burn_rate arrive as null under no_data."""
+
+    incidents = _read(INCIDENTS_HTML)
+
+    assert "slo.compliance_pct != null" in incidents
+    assert "slo.burn_rate != null" in incidents
+
+
+def test_hidden_tab_pauses_the_incidents_poll():
+    """The document.hidden branch must stop all three refreshers."""
+
+    javascript = _read(DASHBOARD_JS)
+    hidden_block = javascript.split("if (document.hidden)", 1)[1].split("}", 1)[0]
+
+    assert "this.stopStatsRefresh()" in hidden_block
+    assert "this.stopClusterRefresh()" in hidden_block
+    assert "this.stopIncidentsRefresh()" in hidden_block
+
+
+def test_incidents_refresh_cannot_overlap_itself():
+    """A slow cycle must be skipped, not stacked: Promise.all + in-flight guard."""
+
+    javascript = _read(DASHBOARD_JS)
+    body = javascript.split("async refreshIncidentsExperience()", 1)[1].split(
+        "stopIncidentsRefresh() {", 1
+    )[0]
+
+    assert "Promise.all(" in body
+    assert "_incidentsRefreshInFlight" in body
+
+
+def test_dark_mode_remaps_the_incident_badges_that_slipped():
+    """text-red-800 and hover:bg-amber-100 need explicit dark rules."""
+
+    css = _read(DASHBOARD_CSS)
+
+    assert '[data-theme="dark"] .text-red-800' in css
+    assert ".hover\\:bg-amber-100:hover" in css

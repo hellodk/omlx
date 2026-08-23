@@ -197,6 +197,8 @@
     [data-theme="dark"] .text-red-500 { color: #f87171 !important; }
     [data-theme="dark"] .text-red-600 { color: #ef4444 !important; }
     [data-theme="dark"] .text-red-700 { color: #fca5a5 !important; }
+    [data-theme="dark"] .text-red-800 { color: #fca5a5 !important; }
+    [data-theme="dark"] .hover\:bg-amber-100:hover { background-color: rgba(245, 158, 11, 0.2) !important; }
 
     /* === Gradient background effect === */
     [data-theme="dark"] .from-neutral-50 { --tw-gradient-from: var(--bg-secondary) !important; }

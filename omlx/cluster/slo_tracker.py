@@ -14,12 +14,17 @@ from ..slo_definitions import DEFAULT_SLOS, SLO, SLOMetricKind, SLOStatus
 
 @dataclass(slots=True)
 class SLOEvaluation:
-    """Result of evaluating one SLO over its rolling window."""
+    """Result of evaluating one SLO over its rolling window.
+
+    ``compliance_pct`` and ``burn_rate`` are ``None`` when the window holds
+    no samples: inventing 100.0 / 0.0 there made every fresh deployment look
+    like a perfectly compliant one.
+    """
 
     slo: SLO
     status: SLOStatus
-    compliance_pct: float
-    burn_rate: float
+    compliance_pct: float | None
+    burn_rate: float | None
     window_seconds: int
     sample_count: int
     current_value: float | None = None
@@ -138,9 +143,9 @@ class SLOTracker:
         if window is None:
             return SLOEvaluation(
                 slo=slo,
-                status=SLOStatus.HEALTHY,
-                compliance_pct=100.0,
-                burn_rate=0.0,
+                status=SLOStatus.NO_DATA,
+                compliance_pct=None,
+                burn_rate=None,
                 window_seconds=slo.window_seconds,
                 sample_count=0,
             )
@@ -152,9 +157,9 @@ class SLOTracker:
         if sample_count == 0:
             return SLOEvaluation(
                 slo=slo,
-                status=SLOStatus.HEALTHY,
-                compliance_pct=100.0,
-                burn_rate=0.0,
+                status=SLOStatus.NO_DATA,
+                compliance_pct=None,
+                burn_rate=None,
                 window_seconds=slo.window_seconds,
                 sample_count=0,
             )
@@ -270,9 +275,16 @@ class SLOTracker:
 
 
 def _overall_status(evaluations: list[SLOEvaluation]) -> str:
-    """Derive the aggregate status across all SLO evaluations."""
+    """Derive the aggregate status across all SLO evaluations.
+
+    Real signals outrank missing data: one breached SLO is not diluted by
+    siblings that have never been measured. Only when *nothing* has samples
+    does the aggregate admit it.
+    """
     if any(ev.status == SLOStatus.BREACHED for ev in evaluations):
         return SLOStatus.BREACHED.value
     if any(ev.status == SLOStatus.DEGRADED for ev in evaluations):
         return SLOStatus.DEGRADED.value
+    if all(ev.status == SLOStatus.NO_DATA for ev in evaluations):
+        return SLOStatus.NO_DATA.value
     return SLOStatus.HEALTHY.value

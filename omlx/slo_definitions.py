@@ -22,6 +22,7 @@ class SLOStatus(Enum):
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     BREACHED = "breached"
+    NO_DATA = "no_data"
 
 
 @dataclass(frozen=True, slots=True)

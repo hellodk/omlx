@@ -20,7 +20,8 @@
                       :class="{
                           'bg-green-50 text-green-700': clusterSlos.overall_status === 'healthy',
                           'bg-amber-50 text-amber-700': clusterSlos.overall_status === 'degraded',
-                          'bg-red-50 text-red-700': clusterSlos.overall_status === 'breached'
+                          'bg-red-50 text-red-700': clusterSlos.overall_status === 'breached',
+                          'bg-neutral-100 text-neutral-600': clusterSlos.overall_status === 'no_data'
                       }"
                       x-text="clusterSlos.overall_status"></span>
             </div>
@@ -30,20 +31,25 @@
                          :class="{
                              'border-green-200 bg-green-50': slo.status === 'healthy',
                              'border-amber-200 bg-amber-50': slo.status === 'degraded',
-                             'border-red-200 bg-red-50': slo.status === 'breached'
+                             'border-red-200 bg-red-50': slo.status === 'breached',
+                             'border-neutral-200 bg-neutral-50': slo.status === 'no_data'
                          }">
                         <div class="flex items-center justify-between mb-1.5">
                             <span class="text-[10px] font-semibold uppercase tracking-wider"
                                   :class="{
                                       'text-green-700': slo.status === 'healthy',
                                       'text-amber-700': slo.status === 'degraded',
-                                      'text-red-700': slo.status === 'breached'
+                                      'text-red-700': slo.status === 'breached',
+                                      'text-neutral-500': slo.status === 'no_data'
                                   }"
                                   x-text="slo.status"></span>
-                            <span class="text-[10px] font-mono text-neutral-400" x-text="slo.metric_kind"></span>
+                            <span class="text-[10px] font-mono text-neutral-500" x-text="slo.metric_kind + ' · ' + (slo.sample_count || 0) + ' samples'"></span>
                         </div>
                         <div class="text-xs font-semibold text-neutral-900 mb-0.5" x-text="slo.description || slo.name"></div>
-                        <div class="flex items-baseline gap-1.5 mt-1.5">
+                        <template x-if="slo.status === 'no_data'">
+                            <div class="mt-1.5 text-xs text-neutral-500 italic">No samples in window</div>
+                        </template>
+                        <div class="flex items-baseline gap-1.5 mt-1.5" x-show="slo.compliance_pct != null">
                             <span class="text-lg font-bold tabular-nums"
                                   :class="{
                                       'text-green-700': slo.status === 'healthy',
@@ -51,15 +57,15 @@
                                       'text-red-700': slo.status === 'breached'
                                   }"
                                   x-text="slo.compliance_pct + '%'"></span>
-                            <span class="text-[10px] text-neutral-400">compliance</span>
+                            <span class="text-[10px] text-neutral-500">compliance</span>
                         </div>
-                        <div class="mt-1.5 flex items-center gap-3 text-[10px] text-neutral-500">
+                        <div class="mt-1.5 flex items-center gap-3 text-[10px] text-neutral-500" x-show="slo.burn_rate != null">
                             <span>Burn rate: <span class="font-semibold tabular-nums" x-text="slo.burn_rate.toFixed(2) + 'x'"></span></span>
                             <span x-show="slo.time_to_breach_seconds != null">
                                 Breach in: <span class="font-semibold" x-text="slo.time_to_breach_seconds < 3600 ? Math.round(slo.time_to_breach_seconds / 60) + 'm' : Math.round(slo.time_to_breach_seconds / 3600) + 'h'"></span>
                             </span>
                         </div>
-                        <div class="mt-1 text-[10px] text-neutral-400 font-mono" x-show="slo.current_value != null">
+                        <div class="mt-1 text-[10px] text-neutral-500 font-mono" x-show="slo.current_value != null">
                             Current: <span x-text="slo.current_value"></span> / Target: <span x-text="slo.target"></span>
                         </div>
                     </div>

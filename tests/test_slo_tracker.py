@@ -94,12 +94,52 @@ class TestSLOTrackerEvaluation:
         assert ev.current_value > 55.0  # above degraded threshold
 
     def test_slo_evaluation_empty_window(self) -> None:
-        """Empty window returns HEALTHY with 100% compliance."""
+        """No samples must never read as green: NO_DATA with null numerics."""
         tracker = SLOTracker()
         ev = tracker.evaluate(DEFAULT_SLOS[-1])
-        assert ev.status == SLOStatus.HEALTHY
-        assert ev.compliance_pct == 100.0
+        assert ev.status == SLOStatus.NO_DATA
+        assert ev.compliance_pct is None
+        assert ev.burn_rate is None
         assert ev.sample_count == 0
+
+    def test_unknown_metric_window_is_no_data(self) -> None:
+        """An SLO whose window was never recorded is NO_DATA, not HEALTHY."""
+        from dataclasses import replace
+
+        tracker = SLOTracker()
+        ghost = replace(DEFAULT_SLOS[-1], metric_key="never_recorded_key")
+        ev = tracker.evaluate(ghost)
+        assert ev.status == SLOStatus.NO_DATA
+        assert ev.sample_count == 0
+
+    def test_status_dict_all_no_data_on_fresh_tracker(self) -> None:
+        """A fresh deployment reports no_data, not a healthy lie."""
+
+        payload = SLOTracker().status_dict()
+
+        assert payload["overall_status"] == "no_data"
+        for slo in payload["slos"]:
+            assert slo["status"] == "no_data", slo["name"]
+            assert slo["compliance_pct"] is None
+            assert slo["burn_rate"] is None
+
+    def test_overall_status_real_signal_beats_no_data(self) -> None:
+        """One breached SLO must not be diluted by no_data siblings."""
+
+        tracker = SLOTracker()
+        for v in [30.0, 35.0, 25.0]:  # far below the 70% cache target
+            tracker.record("cache_hit_rate", v)
+
+        payload = tracker.status_dict()
+        assert payload["overall_status"] == "breached"
+
+    def test_overall_status_healthy_signal_beats_no_data(self) -> None:
+        tracker = SLOTracker()
+        for v in [75.0, 80.0, 72.0, 78.0]:
+            tracker.record("cache_hit_rate", v)
+
+        payload = tracker.status_dict()
+        assert payload["overall_status"] == "healthy"
 
     def test_status_returns_all_slos(self) -> None:
         tracker = SLOTracker()
@@ -201,7 +241,7 @@ class TestSLOTrackerIntegration:
         assert "slos" in result
         assert "overall_status" in result
         assert isinstance(result["slos"], list)
-        assert result["overall_status"] in ("healthy", "degraded", "breached")
+        assert result["overall_status"] in ("healthy", "degraded", "breached", "no_data")
 
         for slo_entry in result["slos"]:
             for key in ("name", "metric_kind", "status", "compliance_pct", "burn_rate", "target", "window_seconds"):
@@ -284,15 +324,20 @@ class TestSLOAPISchema:
         assert isinstance(result, dict)
         assert "slos" in result
         assert "overall_status" in result
-        assert result["overall_status"] in ("healthy", "degraded", "breached")
+        assert result["overall_status"] in ("healthy", "degraded", "breached", "no_data")
 
         for slo_entry in result["slos"]:
             assert isinstance(slo_entry["name"], str)
             assert isinstance(slo_entry["metric_kind"], str)
             assert isinstance(slo_entry["status"], str)
-            assert slo_entry["status"] in ("healthy", "degraded", "breached")
-            assert isinstance(slo_entry["compliance_pct"], (int, float))
-            assert isinstance(slo_entry["burn_rate"], (int, float))
+            assert slo_entry["status"] in ("healthy", "degraded", "breached", "no_data")
+            if slo_entry["status"] == "no_data":
+                # No samples: the numerics must be absent, not invented.
+                assert slo_entry["compliance_pct"] is None
+                assert slo_entry["burn_rate"] is None
+            else:
+                assert isinstance(slo_entry["compliance_pct"], (int, float))
+                assert isinstance(slo_entry["burn_rate"], (int, float))
             assert isinstance(slo_entry["target"], (int, float))
             assert isinstance(slo_entry["window_seconds"], int)
             assert isinstance(slo_entry["sample_count"], int)
