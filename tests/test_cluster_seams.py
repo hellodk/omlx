@@ -42,11 +42,15 @@ def _registered_routes() -> set[str]:
     one router made the dashboard's ``/prefix-cache`` call look like a 404.
     """
 
-    from omlx.cluster import prefix_cache_api, routes
+    from omlx.cluster import observability_api, prefix_cache_api, routes
 
     return {
         re.sub(r"\{[^{}]+\}", "{parameter}", route.path)
-        for router in (routes.router, prefix_cache_api.router)
+        for router in (
+            routes.router,
+            prefix_cache_api.router,
+            observability_api.slo_router,
+        )
         for route in router.routes
         if getattr(route, "path", None)
     }
