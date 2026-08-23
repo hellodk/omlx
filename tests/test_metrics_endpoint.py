@@ -82,9 +82,6 @@ def test_core_families_have_help_type_and_live_values():
         ("omlx_prompt_tokens_total", "counter"),
         ("omlx_completion_tokens_total", "counter"),
         ("omlx_cached_tokens_total", "counter"),
-        ("omlx_average_prefill_tokens_per_second", "gauge"),
-        ("omlx_average_generation_tokens_per_second", "gauge"),
-        ("omlx_cache_efficiency_percent", "gauge"),
         ("omlx_uptime_seconds", "gauge"),
     ):
         assert f"# HELP {family} " in text, f"missing HELP for {family}"
@@ -223,3 +220,79 @@ def test_open_by_default_and_bearer_gated_when_configured(monkeypatch):
     assert client.get("/metrics").status_code == 401
     ok = client.get("/metrics", headers={"Authorization": "Bearer s3cret"})
     assert ok.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Fable review, PR #17 follow-ups
+
+
+def test_lifetime_average_gauges_are_not_exported():
+    """Lifetime averages flatten asymptotically; rate() derives them better."""
+
+    from omlx.server_metrics import get_server_metrics
+
+    get_server_metrics().record_request_complete(
+        prompt_tokens=100,
+        completion_tokens=50,
+        cached_tokens=25,
+        prefill_duration=0.2,
+        generation_duration=1.0,
+    )
+
+    text = _scrape(_client())
+
+    for gone in (
+        "omlx_average_prefill_tokens_per_second",
+        "omlx_average_generation_tokens_per_second",
+        "omlx_cache_efficiency_percent",
+    ):
+        assert gone not in text, f"{gone} is derivable and unalertable; drop it"
+
+
+def test_format_value_renders_special_floats_per_spec():
+    """0.0.4 wants +Inf/-Inf/NaN, never python repr spellings."""
+
+    import math
+
+    from omlx.metrics_api import _format_value
+
+    assert _format_value(float("inf")) == "+Inf"
+    assert _format_value(float("-inf")) == "-Inf"
+    assert _format_value(float("nan")) == "NaN"
+    assert math.isnan(float(_format_value(float("nan"))))
+
+
+def test_non_ascii_bearer_header_is_rejected_not_crashed(monkeypatch):
+    """compare_digest raises TypeError on non-ascii str; must stay a 401."""
+
+    client = _client()
+    monkeypatch.setenv("OMLX_METRICS_TOKEN", "s3cret")
+
+    response = client.get(
+        "/metrics",
+        # Raw latin-1 on the wire: starlette decodes it to a non-ascii str,
+        # which is precisely the input that breaks naive comparison.
+        headers={"Authorization": "Bearer ünïcødé".encode("latin-1")},
+    )
+    assert response.status_code == 401
+
+
+def test_stats_clear_is_visible_in_the_exposition():
+    """clear_metrics() zeroes scraped counters mid-process; scrapers must be
+    able to tell a manual clear apart from an unexplained discontinuity."""
+
+    from omlx.metrics_api import render_metrics_text
+    from omlx.server_metrics import get_server_metrics
+
+    metrics = get_server_metrics()
+    metrics.record_request_complete(prompt_tokens=10, completion_tokens=5)
+    metrics.clear_metrics()
+    metrics.clear_metrics()
+
+    samples = _parse_family(render_metrics_text(metrics), "omlx_stats_clears_total")
+    assert samples["omlx_stats_clears_total"] == 2.0
+
+    # The clear counter itself must survive further clears (monotonic).
+    metrics.clear_metrics()
+    samples = _parse_family(render_metrics_text(metrics), "omlx_stats_clears_total")
+    assert samples["omlx_stats_clears_total"] == 3.0

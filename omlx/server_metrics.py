@@ -93,6 +93,11 @@ class ServerMetrics:
             "generation_duration_seconds": _new_histogram(),
         }
 
+        # Monotonic count of manual session-stat wipes. The wipe itself
+        # drives every scraped counter backwards; scrapers need a way to
+        # tell that discontinuity apart from an unexplained reset.
+        self.scrape_clears: int = 0
+
         # All-time totals (persisted across restarts)
         self._alltime_prompt_tokens: int = 0
         self._alltime_completion_tokens: int = 0
@@ -381,6 +386,7 @@ class ServerMetrics:
                     "prefill_duration": self.total_prefill_duration,
                     "generation_duration": self.total_generation_duration,
                 },
+                "scrape_clears": self.scrape_clears,
                 "per_model": {
                     model: dict(counters)
                     for model, counters in self._per_model.items()
@@ -398,7 +404,14 @@ class ServerMetrics:
             }
 
     def clear_metrics(self) -> None:
-        """Clear session metrics. Thread-safe."""
+        """Clear session metrics. Thread-safe.
+
+        This zeroes counters that the /metrics exposition also scrapes, so
+        every clear is a deliberate series discontinuity. ``scrape_clears``
+        (exposed as ``omlx_stats_clears_total``) increments monotonically so
+        dashboards can annotate or alert on the wipe instead of misreading
+        it as a crash-restart.
+        """
         with self._lock:
             self.total_prompt_tokens = 0
             self.total_completion_tokens = 0
@@ -409,6 +422,8 @@ class ServerMetrics:
             self._per_model.clear()
             for name in self._histograms:
                 self._histograms[name] = _new_histogram()
+            # Never reset by the operation it counts.
+            self.scrape_clears += 1
 
     def clear_alltime_metrics(self) -> None:
         """Clear all-time metrics and delete the persisted file. Thread-safe."""

@@ -13,6 +13,8 @@ deliberately absent until the tracker is actually fed (see issue #6).
 
 from __future__ import annotations
 
+import hmac
+import math
 import os
 from typing import Any
 
@@ -37,9 +39,16 @@ def _escape_label(value: str) -> str:
 
 
 def _format_value(value: float) -> str:
-    if float(value).is_integer():
-        return str(int(value))
-    return repr(float(value))
+    """Render a sample value per text-format 0.0.4 special-float rules."""
+
+    v = float(value)
+    if math.isnan(v):
+        return "NaN"
+    if math.isinf(v):
+        return "+Inf" if v > 0 else "-Inf"
+    if v.is_integer():
+        return str(int(v))
+    return repr(v)
 
 
 def _render_family(
@@ -81,19 +90,6 @@ def render_metrics_text(metrics: ServerMetrics | None = None) -> str:
     metrics = metrics or get_server_metrics()
     data = metrics.export_counters()
     totals = data["totals"]
-
-    prefill_dur = totals["prefill_duration"]
-    gen_dur = totals["generation_duration"]
-    processed = totals["prompt_tokens"] - totals["cached_tokens"]
-    avg_prefill_tps = processed / prefill_dur if prefill_dur > 0 else 0.0
-    avg_gen_tps = (
-        totals["completion_tokens"] / gen_dur if gen_dur > 0 else 0.0
-    )
-    cache_pct = (
-        totals["cached_tokens"] / totals["prompt_tokens"] * 100
-        if totals["prompt_tokens"] > 0
-        else 0.0
-    )
 
     lines: list[str] = []
 
@@ -157,24 +153,11 @@ def render_metrics_text(metrics: ServerMetrics | None = None) -> str:
     )
     _render_family(
         lines,
-        "omlx_average_prefill_tokens_per_second",
-        "gauge",
-        "Session-average prompt processing throughput.",
-        [("", avg_prefill_tps)],
-    )
-    _render_family(
-        lines,
-        "omlx_average_generation_tokens_per_second",
-        "gauge",
-        "Session-average generation throughput.",
-        [("", avg_gen_tps)],
-    )
-    _render_family(
-        lines,
-        "omlx_cache_efficiency_percent",
-        "gauge",
-        "Share of prompt tokens served from cache.",
-        [("", cache_pct)],
+        "omlx_stats_clears_total",
+        "counter",
+        "Manual session-stat wipes via the admin API; each zeroes the"
+        " counters above, so treat the series as discontinuous there.",
+        [("", data["scrape_clears"])],
     )
     _render_family(
         lines,
@@ -190,13 +173,19 @@ def render_metrics_text(metrics: ServerMetrics | None = None) -> str:
 def _require_scrape_token(authorization: str = Header(default="")) -> None:
     """Bearer gate, active only when OMLX_METRICS_TOKEN is configured.
 
-    Read at request time so rotating the token needs no restart.
+    Read at request time so rotating the token needs no restart. The
+    comparison is constant-time; a TypeError from non-ascii header bytes
+    is a failed comparison, not a 500.
     """
 
     expected = os.environ.get("OMLX_METRICS_TOKEN")
     if not expected:
         return
-    if authorization != f"Bearer {expected}":
+    try:
+        matched = hmac.compare_digest(authorization, f"Bearer {expected}")
+    except TypeError:
+        matched = False
+    if not matched:
         raise HTTPException(status_code=401, detail="Invalid scrape token.")
 
 
