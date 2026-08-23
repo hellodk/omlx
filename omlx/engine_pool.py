@@ -17,6 +17,7 @@ import asyncio
 import gc
 import json
 import logging
+import re
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
@@ -53,6 +54,27 @@ from .scheduler import SchedulerConfig
 from .utils.proc_memory import get_phys_footprint
 
 logger = logging.getLogger(__name__)
+
+_MODEL_FAMILY_SUFFIX = re.compile(
+    r"-(?:mlx[-_])?(?:4bit|6bit|8bit|bf16|fp16|f16|f32|int4|int8|dwq)$",
+    re.IGNORECASE,
+)
+
+
+def _model_family_key(model_id: str) -> str:
+    """Collapse quant variants of one repo to a shared family key.
+
+    "mlx-community--Qwen3.5-4B-MLX-4bit" and its -8bit sibling both reduce
+    to "...qwen3.5-4b-mlx"; distinct bases stay distinct. Strips repeatedly
+    so compound suffixes ("-mlx-4bit") collapse fully.
+    """
+    key = model_id.strip().lower()
+    while True:
+        stripped = _MODEL_FAMILY_SUFFIX.sub("", key)
+        if stripped == key or not stripped:
+            return key
+        key = stripped
+
 
 _FP16_BYTES = 2
 _MAX_AFFINE_BYTES_PER_WEIGHT = 1.0625  # q8 plus fp16 scale/bias per group
@@ -1461,6 +1483,11 @@ class EnginePool:
             self._raise_if_model_path_missing_locked(model_id, entry)
             self._raise_if_load_failed(model_id, entry)
 
+            # Same-model variant retirement (see #27): an idle -4bit must
+            # not stay resident just because the -8bit's projected footprint
+            # still fits under the soft watermark. Unconditional on headroom.
+            await self._evict_idle_family_siblings(model_id)
+
             # Pre-load admission against the memory ceiling from the
             # process memory enforcer (min of static and dynamic). Try
             # evicting LRU non-pinned models first; if the model still
@@ -1724,6 +1751,39 @@ class EnginePool:
             yield engine
         finally:
             await self.release_engine(model_id)
+
+    def _find_idle_family_siblings(self, model_id: str) -> list[str]:
+        """Loaded, idle, unpinned engines that are quant variants of model_id.
+
+        Two quants of one base model are duplicate footprint with no serving
+        value: a request for the -8bit variant while the -4bit sits idle is
+        always a switch, never a fan-out. Retirement happens at load
+        admission regardless of headroom math -- waiting for the soft
+        watermark let both variants sit resident at 96% of hard cap.
+        """
+        family = _model_family_key(model_id)
+        siblings = []
+        for mid, entry in self._entries.items():
+            if mid == model_id:
+                continue
+            if _model_family_key(mid) != family:
+                continue
+            if entry.engine is None:
+                continue
+            if self._is_idle_for_prefill_eviction(entry):
+                siblings.append(mid)
+        return siblings
+
+    async def _evict_idle_family_siblings(self, model_id: str) -> int:
+        siblings = self._find_idle_family_siblings(model_id)
+        for mid in siblings:
+            logger.info(
+                "Unloading same-model variant '%s' before loading '%s'",
+                mid,
+                model_id,
+            )
+            await self._unload_engine(mid)
+        return len(siblings)
 
     def _find_lru_victim(self) -> str | None:
         """
