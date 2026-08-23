@@ -141,6 +141,27 @@ class TestSLOTrackerEvaluation:
         payload = tracker.status_dict()
         assert payload["overall_status"] == "healthy"
 
+    def test_overall_status_degraded_signal_beats_no_data(self) -> None:
+        tracker = SLOTracker()
+        for v in [62.0, 63.0, 64.0]:  # between degraded_target and target
+            tracker.record("cache_hit_rate", v)
+
+        payload = tracker.status_dict()
+        assert payload["overall_status"] == "degraded"
+
+    def test_status_dict_reports_sample_coverage(self) -> None:
+        """Aggregate consumers need to see a silently-dead feed."""
+
+        fresh = SLOTracker().status_dict()
+        assert fresh["slos_total"] == len(fresh["slos"])
+        assert fresh["slos_with_samples"] == 0
+
+        tracker = SLOTracker()
+        tracker.record("cache_hit_rate", 80.0)
+        fed = tracker.status_dict()
+        assert fed["slos_with_samples"] == 1
+        assert fed["slos_total"] == len(DEFAULT_SLOS)
+
     def test_status_returns_all_slos(self) -> None:
         tracker = SLOTracker()
         evaluations = tracker.status()

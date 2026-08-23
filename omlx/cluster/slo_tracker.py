@@ -271,6 +271,10 @@ class SLOTracker:
                 for ev in evaluations
             ],
             "overall_status": _overall_status(evaluations),
+            # Coverage ratio: a mixed healthy+no_data aggregate hides a
+            # silently-dead feed from anyone reading only overall_status.
+            "slos_with_samples": sum(1 for ev in evaluations if ev.sample_count > 0),
+            "slos_total": len(evaluations),
         }
 
 

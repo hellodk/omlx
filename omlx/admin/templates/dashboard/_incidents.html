@@ -56,15 +56,17 @@
                                       'text-amber-700': slo.status === 'degraded',
                                       'text-red-700': slo.status === 'breached'
                                   }"
-                                  x-text="slo.compliance_pct + '%'"></span>
+                                  x-text="slo.compliance_pct != null ? slo.compliance_pct + '%' : '—'"></span>
                             <span class="text-[10px] text-neutral-500">compliance</span>
                         </div>
-                        <div class="mt-1.5 flex items-center gap-3 text-[10px] text-neutral-500" x-show="slo.burn_rate != null">
-                            <span>Burn rate: <span class="font-semibold tabular-nums" x-text="slo.burn_rate.toFixed(2) + 'x'"></span></span>
-                            <span x-show="slo.time_to_breach_seconds != null">
-                                Breach in: <span class="font-semibold" x-text="slo.time_to_breach_seconds < 3600 ? Math.round(slo.time_to_breach_seconds / 60) + 'm' : Math.round(slo.time_to_breach_seconds / 3600) + 'h'"></span>
-                            </span>
-                        </div>
+                        <template x-if="slo.burn_rate != null">
+                            <div class="mt-1.5 flex items-center gap-3 text-[10px] text-neutral-500">
+                                <span>Burn rate: <span class="font-semibold tabular-nums" x-text="slo.burn_rate.toFixed(2) + 'x'"></span></span>
+                                <span x-show="slo.time_to_breach_seconds != null">
+                                    Breach in: <span class="font-semibold" x-text="slo.time_to_breach_seconds < 3600 ? Math.round(slo.time_to_breach_seconds / 60) + 'm' : Math.round(slo.time_to_breach_seconds / 3600) + 'h'"></span>
+                                </span>
+                            </div>
+                        </template>
                         <div class="mt-1 text-[10px] text-neutral-500 font-mono" x-show="slo.current_value != null">
                             Current: <span x-text="slo.current_value"></span> / Target: <span x-text="slo.target"></span>
                         </div>
@@ -79,10 +81,12 @@
                 <i data-lucide="battery-medium" class="w-4 h-4 text-neutral-500"></i>
                 <h3 class="text-sm font-semibold text-neutral-900">Error Budget</h3>
                 <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider"
-                      :class="clusterErrorBudget.can_deploy
-                          ? 'bg-green-50 text-green-700'
-                          : 'bg-red-50 text-red-700'"
-                      x-text="clusterErrorBudget.can_deploy ? 'deploy allowed' : 'deploy blocked'"></span>
+                      :class="{
+                          'bg-green-50 text-green-700': clusterErrorBudget.can_deploy && clusterErrorBudget.state !== 'no_data',
+                          'bg-red-50 text-red-700': !clusterErrorBudget.can_deploy,
+                          'bg-neutral-100 text-neutral-600': clusterErrorBudget.state === 'no_data'
+                      }"
+                      x-text="clusterErrorBudget.state === 'no_data' ? 'no data' : (clusterErrorBudget.can_deploy ? 'deploy allowed' : 'deploy blocked')"></span>
             </div>
             <div x-show="(clusterErrorBudget.blocking_slos || []).length"
                  class="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-800">

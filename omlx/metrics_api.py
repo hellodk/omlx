@@ -181,9 +181,16 @@ def _require_scrape_token(authorization: str = Header(default="")) -> None:
     expected = os.environ.get("OMLX_METRICS_TOKEN")
     if not expected:
         return
+    # Compare bytes: compare_digest(str, str) refuses non-ascii outright,
+    # which would lock out scrapers even when the configured token itself
+    # is non-ascii. Both sides map through utf-8 so any configured token
+    # matches exactly the header string starlette decoded from the wire.
     try:
-        matched = hmac.compare_digest(authorization, f"Bearer {expected}")
-    except TypeError:
+        matched = hmac.compare_digest(
+            authorization.encode("utf-8", "replace"),
+            f"Bearer {expected}".encode("utf-8", "replace"),
+        )
+    except (TypeError, UnicodeEncodeError):
         matched = False
     if not matched:
         raise HTTPException(status_code=401, detail="Invalid scrape token.")

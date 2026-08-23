@@ -296,3 +296,41 @@ def test_stats_clear_is_visible_in_the_exposition():
     metrics.clear_metrics()
     samples = _parse_family(render_metrics_text(metrics), "omlx_stats_clears_total")
     assert samples["omlx_stats_clears_total"] == 3.0
+
+
+def test_clear_resets_every_exported_counter_family():
+    """HELP promises a full discontinuity; preflight rejections included."""
+
+    from omlx.metrics_api import render_metrics_text
+    from omlx.server_metrics import get_server_metrics
+
+    metrics = get_server_metrics()
+    metrics.record_preflight_rejection("hard_limit")
+    metrics.clear_metrics()
+
+    samples = _parse_family(
+        render_metrics_text(metrics), "omlx_preflight_rejections_total"
+    )
+    assert samples['omlx_preflight_rejections_total{reason="hard_limit"}'] == 0.0
+
+
+def test_configured_non_ascii_token_still_authenticates(monkeypatch):
+    """compare_digest(str, str) refuses non-ascii outright and would lock
+    out scrapers whose configured token is itself non-ascii. Bytes never
+    refuse. Verified at the function boundary: TestClient re-encodes
+    header bytes, so the clean wire path cannot pass through it intact."""
+
+    import pytest
+    from fastapi import HTTPException
+
+    from omlx.metrics_api import _require_scrape_token
+
+    monkeypatch.setenv("OMLX_METRICS_TOKEN", "s3crét")
+
+    # Must not raise: this is exactly the header string starlette decodes
+    # from a real scraper's wire bytes.
+    _require_scrape_token("Bearer s3crét")
+
+    with pytest.raises(HTTPException) as exc_info:
+        _require_scrape_token("Bearer wrong")
+    assert exc_info.value.status_code == 401

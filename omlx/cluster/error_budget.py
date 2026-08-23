@@ -141,7 +141,13 @@ class ErrorBudgetTracker:
         return alerts
 
     def budget_status(self, *, now: float | None = None) -> dict[str, object]:
-        """Serializable budget status suitable for the error-budget API."""
+        """Serializable budget status suitable for the error-budget API.
+
+        ``state`` is ``"no_data"`` when no SLO has a single sample: the
+        numeric fields still carry their neutral defaults and ``can_deploy``
+        keeps its gate semantics, but consumers can render an honest
+        "nothing measured" instead of a green 100%.
+        """
         can, blocking = self.can_deploy(now=now)
         budgets = self.all_budgets(now=now)
         return {
@@ -158,4 +164,7 @@ class ErrorBudgetTracker:
             ],
             "can_deploy": can,
             "blocking_slos": blocking,
+            "state": (
+                "no_data" if all(b.sample_count == 0 for b in budgets) else "measured"
+            ),
         }

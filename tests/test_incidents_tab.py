@@ -276,6 +276,39 @@ def test_null_slo_numerics_are_guarded_in_the_card():
     assert "slo.burn_rate != null" in incidents
 
 
+def test_burn_rate_binding_is_evaluation_deferred_not_merely_hidden():
+    """x-show hides but still evaluates: null.toFixed would throw on every
+    poll. The burn row must sit inside a template x-if so Alpine never
+    evaluates its descendants while there is nothing to format."""
+
+    incidents = _read(INCIDENTS_HTML)
+
+    assert 'x-show="slo.burn_rate != null"' not in incidents
+    match = re.search(
+        r'<template x-if="slo\.burn_rate != null">(.*?)</template>',
+        incidents,
+        re.S,
+    )
+    assert match, "burn row must be wrapped in <template x-if>"
+    assert ".toFixed(2)" in match.group(1)
+
+
+def test_compliance_text_renders_a_placeholder_under_no_data():
+    """null + '%' would read 'null%'; the binding must branch instead."""
+
+    incidents = _read(INCIDENTS_HTML)
+
+    assert "slo.compliance_pct != null ? slo.compliance_pct + '%' : '—'" in incidents
+
+
+def test_budget_pill_admits_no_data():
+    """can_deploy=True from zero samples must not render green."""
+
+    incidents = _read(INCIDENTS_HTML)
+
+    assert "clusterErrorBudget.state === 'no_data'" in incidents
+
+
 def test_hidden_tab_pauses_the_incidents_poll():
     """The document.hidden branch must stop all three refreshers."""
 

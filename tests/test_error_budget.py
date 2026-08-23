@@ -361,3 +361,39 @@ class TestBudgetAlerts:
         for alert in alerts:
             for key in ("slo_name", "budget_remaining_pct", "threshold_pct", "consumption_rate"):
                 assert key in alert, f"missing key '{key}' in alert"
+
+
+# ---------------------------------------------------------------------------
+# Fable review follow-up: the budget card must not lie at zero samples
+# ---------------------------------------------------------------------------
+
+
+class TestBudgetStatusNoDataState:
+    def test_fresh_tracker_reports_no_data_state(self) -> None:
+        """can_deploy stays True (gates unchanged) but the payload admits
+        it is backed by nothing — the UI renders that, not green."""
+
+        payload = ErrorBudgetTracker(SLOTracker()).budget_status()
+
+        assert payload["state"] == "no_data"
+        assert payload["can_deploy"] is True
+
+    def test_measured_state_with_samples(self) -> None:
+        tracker = SLOTracker()
+        for v in [75.0, 80.0]:
+            tracker.record("cache_hit_rate", v)
+
+        payload = ErrorBudgetTracker(tracker).budget_status()
+
+        assert payload["state"] == "measured"
+
+    def test_mixed_coverage_counts_as_measured(self) -> None:
+        """One fed SLO means real evidence exists; per-card sample_count
+        exposes partial coverage, and status_dict carries the ratio."""
+
+        tracker = SLOTracker()
+        tracker.record("cache_hit_rate", 80.0)
+
+        payload = ErrorBudgetTracker(tracker).budget_status()
+
+        assert payload["state"] == "measured"

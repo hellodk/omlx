@@ -420,6 +420,12 @@ class ServerMetrics:
             self.total_prefill_duration = 0.0
             self.total_generation_duration = 0.0
             self._per_model.clear()
+            # Rejection counts are session stats too; reset to the default
+            # shape so the exposition always emits both known series.
+            self.preflight_rejections = {
+                "hard_limit": 0,
+                "admission_paused": 0,
+            }
             for name in self._histograms:
                 self._histograms[name] = _new_histogram()
             # Never reset by the operation it counts.
