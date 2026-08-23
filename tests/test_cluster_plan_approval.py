@@ -209,6 +209,48 @@ def test_soft_weight_target_is_clamped_to_current_safe_budget():
     assert budget.target_weight_bytes == budget.usable_bytes
 
 
+def test_node_budgets_survive_a_stale_reserve_larger_than_capacity():
+    """A dashboard replaying a stored plan can carry an absolute reserve
+    recorded against a bigger machine. On an 8 GB mini whose static ceiling
+    is 4 GiB, reserve >= capacity used to raise out of NodeBudget and 500
+    every catalogue/planning call for the whole fleet. Clamp like
+    target_weight_bytes: degrade this one node, never reject the plan."""
+
+    from omlx.cluster import routes
+
+    gib = 1024**3
+    request = routes.ClusterPlanNodeRequest(
+        node_id="mac-mini-8gb",
+        capacity_bytes=4 * gib,
+        reserve_bytes=8 * gib,
+        role="workstation",
+        target_weight_bytes=0,
+    )
+
+    budget = routes._node_budgets([request])[0]
+
+    assert budget.reserve_bytes < budget.capacity_bytes
+    assert budget.usable_bytes == budget.capacity_bytes - budget.reserve_bytes
+
+
+def test_node_budgets_keep_a_valid_client_reserve_in_policy_bounds():
+    gib = 1024**3
+    request = routes.ClusterPlanNodeRequest(
+        node_id="studio",
+        capacity_bytes=64 * gib,
+        reserve_bytes=6 * gib,
+        role="workstation",
+        target_weight_bytes=0,
+    )
+
+    budget = routes._node_budgets([request])[0]
+
+    # The effective reserve is the larger of the client's number and the
+    # workstation role policy, and it never swallows the whole node.
+    assert budget.reserve_bytes >= 6 * gib
+    assert budget.reserve_bytes < budget.capacity_bytes
+
+
 # ---------------------------------------------------------------------------
 # The server: same budgets in the preview, the deployment and the re-plan.
 # ---------------------------------------------------------------------------

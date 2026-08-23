@@ -565,6 +565,13 @@ def _node_budgets(
         if performance is None and node.performance is not None:
             performance = NodePerformanceProfile.from_dict(node.performance)
         reserve_bytes = _reserve_bytes_for(node)
+        # A stale plan replay can carry an absolute reserve recorded against
+        # a larger machine; on a node whose ceiling shrank (an 8 GB mini's
+        # 4 GiB static cap) that exceeds capacity and NodeBudget refuses it,
+        # 500-ing every catalogue and planning call for the whole fleet.
+        # Clamp exactly like target_weight_bytes below: degrade this one
+        # node to near-zero usable bytes, never reject the plan.
+        reserve_bytes = min(reserve_bytes, max(0, node.capacity_bytes - 1))
         # A target is a preference, not an admission override. The measured
         # budget or workstation role can legitimately shrink between the
         # slider moving and this request arriving; clamp the preference to the
