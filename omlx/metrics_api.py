@@ -172,6 +172,41 @@ def render_metrics_text(metrics: ServerMetrics | None = None) -> str:
     )
     _render_family(
         lines,
+        "omlx_prompt_cache_requests_hit_total",
+        "counter",
+        "Requests whose prompt reused cached prefix tokens.",
+        [("", data["prompt_cache_requests_hit"])],
+    )
+    _render_family(
+        lines,
+        "omlx_prompt_cache_requests_miss_total",
+        "counter",
+        "Requests whose prompt had no cached prefix.",
+        [("", data["prompt_cache_requests_miss"])],
+    )
+    _render_family(
+        lines,
+        "omlx_spec_accepted_tokens_total",
+        "counter",
+        "Draft tokens accepted by speculative verify (tau = accepted/drafted).",
+        [("", data["spec_accepted_tokens"])],
+    )
+    _render_family(
+        lines,
+        "omlx_spec_drafted_tokens_total",
+        "counter",
+        "Draft tokens proposed by speculative decoding.",
+        [("", data["spec_drafted_tokens"])],
+    )
+    _render_family(
+        lines,
+        "omlx_spec_verify_cycles_total",
+        "counter",
+        "Speculative verify cycles run.",
+        [("", data["spec_cycles"])],
+    )
+    _render_family(
+        lines,
         "omlx_uptime_seconds",
         "gauge",
         "Seconds since server start.",
