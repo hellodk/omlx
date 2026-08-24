@@ -1193,8 +1193,10 @@ async def get_engine(
         )
         raise HTTPException(status_code=404, detail=detail)
     except ModelTooLargeError as e:
+        get_server_metrics().record_preflight_rejection("capacity")
         raise HTTPException(status_code=507, detail=str(e))
     except InsufficientMemoryError as e:
+        get_server_metrics().record_preflight_rejection("capacity")
         raise HTTPException(status_code=507, detail=str(e))
     except ModelUnavailableError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
@@ -1331,6 +1333,11 @@ def _count_request_failure(exc: BaseException) -> None:
     Classification lives in server_metrics so it is testable without mlx;
     HTTP-4xx client errors and process lifecycle signals stay uncounted.
     """
+    # Prefill-guard rejections are policy outcomes, not faults: they belong
+    # in the rejection family (#23) rather than inflating error rates.
+    if isinstance(exc, PrefillMemoryExceededError):
+        get_server_metrics().record_preflight_rejection("memory_guard")
+        return
     reason = classify_request_failure(exc)
     if reason is not None:
         get_server_metrics().record_request_error(reason)
@@ -2299,8 +2306,11 @@ async def _with_sse_keepalive(
                 except Exception as e:
                     if isinstance(e, PrefillMemoryExceededError):
                         logger.warning(f"SSE generator prefill rejected: {e}")
+                        get_server_metrics().record_preflight_rejection("memory_guard")
                         error_data = _prefill_memory_openai_error_body(e)
                     else:
+                        get_server_metrics().record_request_error("generation")
+
                         logger.error(f"SSE generator error: {e}")
                         error_data = {
                             "error": {"message": str(e), "type": "server_error"}
@@ -2399,6 +2409,7 @@ async def _with_json_keepalive(
             result = task.result()
         except PrefillMemoryExceededError as e:
             logger.warning(f"JSON keepalive prefill rejected: {e}")
+            get_server_metrics().record_preflight_rejection("memory_guard")
             yield json.dumps(_prefill_memory_openai_error_body(e))
             return
         except BaseException as exc:
@@ -3024,8 +3035,10 @@ async def load_model_public(model_id: str, _: bool = Depends(verify_api_key)):
     except ModelNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except ModelTooLargeError as e:
+        get_server_metrics().record_preflight_rejection("capacity")
         raise HTTPException(status_code=507, detail=str(e)) from e
     except InsufficientMemoryError as e:
+        get_server_metrics().record_preflight_rejection("capacity")
         raise HTTPException(status_code=507, detail=str(e)) from e
     except ModelUnavailableError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e

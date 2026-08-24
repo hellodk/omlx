@@ -426,3 +426,35 @@ def test_clear_resets_cache_and_spec_families():
         "omlx_spec_verify_cycles_total",
     ):
         assert f"\n{fam} 0\n" in samples, fam
+
+
+def test_memory_guard_and_capacity_reasons_are_bounded_defaults():
+    from omlx.metrics_api import render_metrics_text
+    from omlx.server_metrics import get_server_metrics
+
+    metrics = get_server_metrics()
+    metrics.record_preflight_rejection("memory_guard")
+    metrics.record_preflight_rejection("memory_guard")
+    metrics.record_preflight_rejection("capacity")
+
+    text = render_metrics_text(metrics)
+
+    assert '\nomlx_preflight_rejections_total{reason="memory_guard"} 2\n' in text
+    assert '\nomlx_preflight_rejections_total{reason="capacity"} 1\n' in text
+
+    metrics.clear_metrics()
+    text = render_metrics_text(metrics)
+    assert '\nomlx_preflight_rejections_total{reason="memory_guard"} 0\n' in text
+    assert '\nomlx_preflight_rejections_total{reason="capacity"} 0\n' in text
+
+
+def test_generation_reason_is_wired_for_stream_faults():
+    """The SSE converter maps generation faults to reason=generation."""
+    from omlx.server_metrics import get_server_metrics
+
+    get_server_metrics().record_request_error("generation")
+
+    from omlx.metrics_api import render_metrics_text
+
+    text = render_metrics_text(get_server_metrics())
+    assert '\nomlx_request_errors_total{reason="generation"} 1\n' in text
