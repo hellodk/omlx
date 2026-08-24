@@ -102,6 +102,11 @@ class ServerMetrics:
         self.preflight_rejections: Dict[str, int] = {
             "hard_limit": 0,
             "admission_paused": 0,
+            # #23: prefill memory-guard rejections (mid-flight policy) and
+            # load-time capacity refusals join the bounded set so alerting
+            # sees guard activity that previously vanished into HTTP 400/507.
+            "memory_guard": 0,
+            "capacity": 0,
         }
 
         # Request outcomes that never reach record_request_complete: client
@@ -504,6 +509,8 @@ class ServerMetrics:
             self.preflight_rejections = {
                 "hard_limit": 0,
                 "admission_paused": 0,
+                "memory_guard": 0,
+                "capacity": 0,
             }
             self.request_errors = {
                 "client_disconnect": 0,
