@@ -109,6 +109,14 @@ class ServerMetrics:
         # an "other" fallback so label cardinality stays fixed.
         # "generation"/"timeout" are forward declarations until the
         # per-stream wiring lands; they emit zeros by design.
+        # Prompt-cache request outcomes and speculative-decode telemetry.
+        # Cache outcomes ride record_request_complete (cached_tokens>0 = hit);
+        # spec totals accumulate from the MTP patch's per-sequence finalize.
+        self.prompt_cache_requests_hit: int = 0
+        self.prompt_cache_requests_miss: int = 0
+        self.spec_accepted_tokens: int = 0
+        self.spec_drafted_tokens: int = 0
+        self.spec_cycles: int = 0
         self.request_errors: Dict[str, int] = {
             "client_disconnect": 0,
             "generation": 0,
@@ -279,6 +287,13 @@ class ServerMetrics:
                 am["prefill_duration"] += prefill_duration
                 am["generation_duration"] += generation_duration
 
+            # Prompt-cache request outcome (#42): any reused prefix counts
+            # as a hit for this request.
+            if cached_tokens and cached_tokens > 0:
+                self.prompt_cache_requests_hit += 1
+            else:
+                self.prompt_cache_requests_miss += 1
+
             # Periodic save
             self._maybe_save_alltime()
 
@@ -293,6 +308,19 @@ class ServerMetrics:
                     self._histograms["generation_duration_seconds"],
                     generation_duration,
                 )
+
+    def record_spec_decode_cycle(
+        self, accepted: int, drafted: int, cycles: int
+    ) -> None:
+        """Accumulate speculative-decode verify-cycle telemetry.
+
+        tau (accepted/drafted) is derived at query time from the two
+        counters so rollups stay correct across restarts.
+        """
+        with self._lock:
+            self.spec_accepted_tokens += max(0, int(accepted))
+            self.spec_drafted_tokens += max(0, int(drafted))
+            self.spec_cycles += max(0, int(cycles))
 
     def record_request_error(self, reason: str = "other") -> None:
         """Count a request that failed outside the completion path.
@@ -438,6 +466,11 @@ class ServerMetrics:
                 },
                 "preflight_rejections": dict(self.preflight_rejections),
                 "request_errors": dict(self.request_errors),
+                "prompt_cache_requests_hit": self.prompt_cache_requests_hit,
+                "prompt_cache_requests_miss": self.prompt_cache_requests_miss,
+                "spec_accepted_tokens": self.spec_accepted_tokens,
+                "spec_drafted_tokens": self.spec_drafted_tokens,
+                "spec_cycles": self.spec_cycles,
                 "histograms": {
                     name: {
                         "counts": list(data["counts"]),
@@ -479,6 +512,11 @@ class ServerMetrics:
                 "other": 0,
                 "timeout": 0,
             }
+            self.prompt_cache_requests_hit = 0
+            self.prompt_cache_requests_miss = 0
+            self.spec_accepted_tokens = 0
+            self.spec_drafted_tokens = 0
+            self.spec_cycles = 0
             for name in self._histograms:
                 self._histograms[name] = _new_histogram()
             # Never reset by the operation it counts.

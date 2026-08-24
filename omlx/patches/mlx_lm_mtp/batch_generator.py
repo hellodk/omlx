@@ -2832,6 +2832,16 @@ def _log_mtp_stats(uid: Any, stats: "_MtpStats", finish_reason: str) -> None:
         depth_str = ""
     if stats.zero_cycles:
         depth_str += f" d0={stats.zero_cycles}"
+    try:
+        from ..server_metrics import get_server_metrics
+
+        get_server_metrics().record_spec_decode_cycle(
+            accepted=stats.accepts,
+            drafted=total_drafted,
+            cycles=stats.cycles,
+        )
+    except Exception as exc:  # metrics must never break generation
+        logger.debug("MTP telemetry export failed: %s", exc)
     tpc = total_emits / stats.cycles if stats.cycles else 0.0
     logger.info(
         "MTP[%s] finish=%s tokens=%d cycles=%d tok/cycle=%.2f accept=%d/%d (%s)%s "

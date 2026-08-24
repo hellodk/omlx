@@ -372,3 +372,57 @@ def test_clear_resets_request_errors_but_not_the_clear_counter():
     assert samples['omlx_request_errors_total{reason="timeout"}'] == 0.0
     clears = _parse_family(render_metrics_text(metrics), "omlx_stats_clears_total")
     assert clears["omlx_stats_clears_total"] == 1.0
+
+
+def test_cache_outcome_rides_record_request_complete():
+    from omlx.server_metrics import get_server_metrics
+
+    metrics = get_server_metrics()
+    metrics.record_request_complete(
+        prompt_tokens=100, completion_tokens=10, cached_tokens=80
+    )
+    metrics.record_request_complete(prompt_tokens=50, completion_tokens=5)
+
+    from omlx.metrics_api import render_metrics_text
+
+    text = render_metrics_text(metrics)
+
+    assert '\nomlx_prompt_cache_requests_hit_total 1\n' in text
+    assert '\nomlx_prompt_cache_requests_miss_total 1\n' in text
+
+
+def test_spec_cycle_accumulation_and_tau_inputs():
+    from omlx.metrics_api import render_metrics_text
+    from omlx.server_metrics import get_server_metrics
+
+    metrics = get_server_metrics()
+    metrics.record_spec_decode_cycle(accepted=30, drafted=40, cycles=10)
+    metrics.record_spec_decode_cycle(accepted=12, drafted=20, cycles=8)
+
+    text = render_metrics_text(metrics)
+
+    assert '\nomlx_spec_accepted_tokens_total 42\n' in text
+    assert '\nomlx_spec_drafted_tokens_total 60\n' in text
+    assert '\nomlx_spec_verify_cycles_total 18\n' in text
+
+
+def test_clear_resets_cache_and_spec_families():
+    from omlx.metrics_api import render_metrics_text
+    from omlx.server_metrics import get_server_metrics
+
+    metrics = get_server_metrics()
+    metrics.record_request_complete(
+        prompt_tokens=10, completion_tokens=2, cached_tokens=4
+    )
+    metrics.record_spec_decode_cycle(5, 9, 3)
+    metrics.clear_metrics()
+
+    samples = render_metrics_text(metrics)
+    for fam in (
+        "omlx_prompt_cache_requests_hit_total",
+        "omlx_prompt_cache_requests_miss_total",
+        "omlx_spec_accepted_tokens_total",
+        "omlx_spec_drafted_tokens_total",
+        "omlx_spec_verify_cycles_total",
+    ):
+        assert f"\n{fam} 0\n" in samples, fam
