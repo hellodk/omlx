@@ -85,6 +85,17 @@ class ServerMetrics:
             "admission_paused": 0,
         }
 
+        # Request outcomes that never reach record_request_complete: client
+        # disconnects mid-stream, internal failures. Bounded reason set with
+        # an "other" fallback so label cardinality stays fixed.
+        self.request_errors: Dict[str, int] = {
+            "client_disconnect": 0,
+            "generation": 0,
+            "internal": 0,
+            "other": 0,
+            "timeout": 0,
+        }
+
         # Latency distributions (session scope). Fed from the same
         # record_request_complete call sites that feed the counters, so no
         # additional wiring is needed to make these real.
@@ -262,6 +273,19 @@ class ServerMetrics:
                     generation_duration,
                 )
 
+    def record_request_error(self, reason: str = "other") -> None:
+        """Count a request that failed outside the completion path.
+
+        Reasons are bounded: known reasons pass through, anything else
+        lands in "other" so a hostile/buggy caller cannot grow the label
+        space.
+        """
+        with self._lock:
+            key = str(reason).strip().lower() or "other"
+            if key not in self.request_errors:
+                key = "other"
+            self.request_errors[key] += 1
+
     def record_preflight_rejection(self, reason: str) -> None:
         """Increment the preflight-rejection counter for ``reason``.
 
@@ -392,6 +416,7 @@ class ServerMetrics:
                     for model, counters in self._per_model.items()
                 },
                 "preflight_rejections": dict(self.preflight_rejections),
+                "request_errors": dict(self.request_errors),
                 "histograms": {
                     name: {
                         "counts": list(data["counts"]),
@@ -425,6 +450,13 @@ class ServerMetrics:
             self.preflight_rejections = {
                 "hard_limit": 0,
                 "admission_paused": 0,
+            }
+            self.request_errors = {
+                "client_disconnect": 0,
+                "generation": 0,
+                "internal": 0,
+                "other": 0,
+                "timeout": 0,
             }
             for name in self._histograms:
                 self._histograms[name] = _new_histogram()

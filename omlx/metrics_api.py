@@ -153,6 +153,17 @@ def render_metrics_text(metrics: ServerMetrics | None = None) -> str:
     )
     _render_family(
         lines,
+        "omlx_request_errors_total",
+        "counter",
+        "Requests that failed outside the completion path (disconnects, "
+        "internal errors), by reason.",
+        [
+            (f'{{reason="{_escape_label(reason)}"}}', count)
+            for reason, count in sorted(data["request_errors"].items())
+        ],
+    )
+    _render_family(
+        lines,
         "omlx_stats_clears_total",
         "counter",
         "Manual session-stat wipes via the admin API; each zeroes the"

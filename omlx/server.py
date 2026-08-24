@@ -3454,9 +3454,23 @@ async def create_completion(
             ),
             media_type="application/json",
         )
-    except BaseException:
+    except BaseException as exc:
         await lease.release()
+        _count_request_failure(exc)
         raise
+
+
+def _count_request_failure(exc: BaseException) -> None:
+    """Attribute a request that never reached record_request_complete.
+
+    Client cancels and internal faults are the bounded reasons; anything
+    outside Exception (KeyboardInterrupt, GeneratorExit) is process
+    lifecycle, not request outcome, and stays uncounted.
+    """
+    if isinstance(exc, asyncio.CancelledError):
+        get_server_metrics().record_request_error("client_disconnect")
+    elif isinstance(exc, Exception):
+        get_server_metrics().record_request_error("internal")
 
 
 @app.post("/v1/chat/completions")
@@ -4000,8 +4014,9 @@ async def create_chat_completion(
             headers=json_headers,
         )
 
-    except BaseException:
+    except BaseException as exc:
         await lease.release()
+        _count_request_failure(exc)
         raise
 
 
@@ -5888,8 +5903,9 @@ async def create_anthropic_message(
             media_type="application/json",
         )
 
-    except BaseException:
+    except BaseException as exc:
         await lease.release()
+        _count_request_failure(exc)
         raise
 
 
@@ -6480,8 +6496,9 @@ async def create_response(
             headers=json_headers,
         )
 
-    except BaseException:
+    except BaseException as exc:
         await lease.release()
+        _count_request_failure(exc)
         raise
 
 
