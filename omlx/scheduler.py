@@ -8184,6 +8184,29 @@ class Scheduler:
             )
             return None
 
+        # Speculation guardrails (#40): draft buffers allocate on top of the
+        # resident model; under pressure they push KV to swap and speculation
+        # loses to plain decode. Fail-open on missing telemetry.
+        from .process_memory_enforcer import get_macos_vm_stats
+        from .server_metrics import get_server_metrics
+        from .speculative.guardrails import (
+            free_bytes_from_vm_stats,
+            should_engage_speculation,
+        )
+
+        engage, guard_reason = should_engage_speculation(
+            free_bytes=free_bytes_from_vm_stats(get_macos_vm_stats()),
+        )
+        if not engage:
+            get_server_metrics().record_spec_fallback()
+            logger.info(
+                "vlm_mtp routing skipped for %s: speculation guardrail (%s); "
+                "falling back to BatchGenerator",
+                request.request_id,
+                guard_reason,
+            )
+            return None
+
         lm = getattr(self.model, "_language_model", None)
         if lm is None or not hasattr(lm, "rollback_speculative_cache"):
             logger.warning(
