@@ -1325,6 +1325,17 @@ async def _raise_if_llm_lease_abort_requested(lease: _LLMEngineLease) -> None:
         )
 
 
+def _count_request_failure(exc: BaseException) -> None:
+    """Attribute a request that never reached record_request_complete.
+
+    Classification lives in server_metrics so it is testable without mlx;
+    HTTP-4xx client errors and process lifecycle signals stay uncounted.
+    """
+    reason = classify_request_failure(exc)
+    if reason is not None:
+        get_server_metrics().record_request_error(reason)
+
+
 async def _release_after_stream(
     generator: AsyncIterator[str],
     lease: _LLMEngineLease,
@@ -1333,6 +1344,12 @@ async def _release_after_stream(
         await _raise_if_llm_lease_abort_requested(lease)
         async for chunk in generator:
             yield chunk
+    except BaseException as exc:
+        # Generation runs after the endpoint handler returned, so this —
+        # not the handler-frame lease choke — is where mid-stream faults
+        # and client cancels actually surface.
+        _count_request_failure(exc)
+        raise
     finally:
         await lease.release()
 
@@ -2370,6 +2387,7 @@ async def _with_json_keepalive(
                             await task
                         except (asyncio.CancelledError, StopAsyncIteration):
                             pass
+                        _count_request_failure(asyncio.CancelledError())
                         return
                 except Exception:
                     pass
@@ -2383,6 +2401,12 @@ async def _with_json_keepalive(
             logger.warning(f"JSON keepalive prefill rejected: {e}")
             yield json.dumps(_prefill_memory_openai_error_body(e))
             return
+        except BaseException as exc:
+            # Standalone call sites (embeddings, markitdown) have no
+            # _release_after_stream wrapper downstream; faults must be
+            # attributed here or they vanish past Starlette.
+            _count_request_failure(exc)
+            raise
         if result is not None:
             yield result
     finally:
@@ -3454,8 +3478,9 @@ async def create_completion(
             ),
             media_type="application/json",
         )
-    except BaseException:
+    except BaseException as exc:
         await lease.release()
+        _count_request_failure(exc)
         raise
 
 
@@ -4000,8 +4025,9 @@ async def create_chat_completion(
             headers=json_headers,
         )
 
-    except BaseException:
+    except BaseException as exc:
         await lease.release()
+        _count_request_failure(exc)
         raise
 
 
@@ -5888,8 +5914,9 @@ async def create_anthropic_message(
             media_type="application/json",
         )
 
-    except BaseException:
+    except BaseException as exc:
         await lease.release()
+        _count_request_failure(exc)
         raise
 
 
@@ -6480,8 +6507,9 @@ async def create_response(
             headers=json_headers,
         )
 
-    except BaseException:
+    except BaseException as exc:
         await lease.release()
+        _count_request_failure(exc)
         raise
 
 

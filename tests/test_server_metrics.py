@@ -506,3 +506,40 @@ class TestServerMetricsSingleton:
         assert m1 is not m2
         snapshot = m2.get_snapshot()
         assert snapshot["total_tokens_served"] == 0
+
+
+# ---------------------------------------------------------------------------
+# classify_request_failure (#21 review): outcome mapping matrix
+
+
+def test_classify_cancelled_error_is_client_disconnect():
+    import asyncio
+    from omlx.server_metrics import classify_request_failure
+
+    assert classify_request_failure(asyncio.CancelledError()) == "client_disconnect"
+
+
+def test_classify_client_4xx_is_not_an_outcome():
+    import pytest
+    from fastapi import HTTPException
+    from omlx.server_metrics import classify_request_failure
+
+    assert classify_request_failure(HTTPException(status_code=404)) is None
+    assert classify_request_failure(HTTPException(status_code=400)) is None
+    with pytest.raises(AttributeError):
+        raise AttributeError("boom")
+
+
+def test_classify_server_fault_and_500_is_internal():
+    from fastapi import HTTPException
+    from omlx.server_metrics import classify_request_failure
+
+    assert classify_request_failure(ValueError("boom")) == "internal"
+    assert classify_request_failure(HTTPException(status_code=502)) == "internal"
+
+
+def test_classify_lifecycle_signals_are_not_outcomes():
+    from omlx.server_metrics import classify_request_failure
+
+    assert classify_request_failure(KeyboardInterrupt()) is None
+    assert classify_request_failure(GeneratorExit()) is None

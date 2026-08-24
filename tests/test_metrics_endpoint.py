@@ -334,3 +334,41 @@ def test_configured_non_ascii_token_still_authenticates(monkeypatch):
     with pytest.raises(HTTPException) as exc_info:
         _require_scrape_token("Bearer wrong")
     assert exc_info.value.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Request-outcome metrics (#21): failures must be visible per reason
+
+
+def test_request_errors_render_with_reason_labels_and_other_bucket():
+    from omlx.server_metrics import get_server_metrics
+
+    metrics = get_server_metrics()
+    metrics.record_request_error("client_disconnect")
+    metrics.record_request_error("internal")
+    metrics.record_request_error("internal")
+    metrics.record_request_error("mystery_cause")
+
+    from omlx.metrics_api import render_metrics_text
+
+    text = render_metrics_text(get_server_metrics())
+
+    assert "# TYPE omlx_request_errors_total counter" in text
+    assert '\nomlx_request_errors_total{reason="client_disconnect"} 1\n' in text
+    assert '\nomlx_request_errors_total{reason="internal"} 2\n' in text
+    # Unknown reasons land in "other", mirroring preflight rejection bounds.
+    assert '\nomlx_request_errors_total{reason="other"} 1\n' in text
+
+
+def test_clear_resets_request_errors_but_not_the_clear_counter():
+    from omlx.metrics_api import render_metrics_text
+    from omlx.server_metrics import get_server_metrics
+
+    metrics = get_server_metrics()
+    metrics.record_request_error("timeout")
+    metrics.clear_metrics()
+
+    samples = _parse_family(render_metrics_text(metrics), "omlx_request_errors_total")
+    assert samples['omlx_request_errors_total{reason="timeout"}'] == 0.0
+    clears = _parse_family(render_metrics_text(metrics), "omlx_stats_clears_total")
+    assert clears["omlx_stats_clears_total"] == 1.0

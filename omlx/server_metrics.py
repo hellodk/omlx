@@ -9,6 +9,9 @@ while all-time metrics persist across restarts via JSON file.
 
 import json
 import logging
+import asyncio
+
+from fastapi import HTTPException
 import threading
 import time
 from pathlib import Path
@@ -48,6 +51,22 @@ def _histogram_observe(histogram: Dict[str, Any], value: float) -> None:
             break
 
 
+
+def classify_request_failure(exc: BaseException) -> str | None:
+    """Map a request-killing exception to an outcome reason, or None.
+
+    None means "not a model-serving outcome": client-caused 4xx errors
+    (fastapi.HTTPException below 500) and process-lifecycle signals
+    (KeyboardInterrupt, GeneratorExit) must not inflate the error family.
+    """
+    if isinstance(exc, asyncio.CancelledError):
+        return "client_disconnect"
+    if isinstance(exc, HTTPException) and exc.status_code < 500:
+        return None
+    if isinstance(exc, Exception):
+        return "internal"
+    return None
+
 class ServerMetrics:
     """
     Global server-level metrics for the Status dashboard.
@@ -83,6 +102,19 @@ class ServerMetrics:
         self.preflight_rejections: Dict[str, int] = {
             "hard_limit": 0,
             "admission_paused": 0,
+        }
+
+        # Request outcomes that never reach record_request_complete: client
+        # disconnects mid-stream, internal failures. Bounded reason set with
+        # an "other" fallback so label cardinality stays fixed.
+        # "generation"/"timeout" are forward declarations until the
+        # per-stream wiring lands; they emit zeros by design.
+        self.request_errors: Dict[str, int] = {
+            "client_disconnect": 0,
+            "generation": 0,
+            "internal": 0,
+            "other": 0,
+            "timeout": 0,
         }
 
         # Latency distributions (session scope). Fed from the same
@@ -262,6 +294,19 @@ class ServerMetrics:
                     generation_duration,
                 )
 
+    def record_request_error(self, reason: str = "other") -> None:
+        """Count a request that failed outside the completion path.
+
+        Reasons are bounded: known reasons pass through, anything else
+        lands in "other" so a hostile/buggy caller cannot grow the label
+        space.
+        """
+        with self._lock:
+            key = str(reason).strip().lower() or "other"
+            if key not in self.request_errors:
+                key = "other"
+            self.request_errors[key] += 1
+
     def record_preflight_rejection(self, reason: str) -> None:
         """Increment the preflight-rejection counter for ``reason``.
 
@@ -392,6 +437,7 @@ class ServerMetrics:
                     for model, counters in self._per_model.items()
                 },
                 "preflight_rejections": dict(self.preflight_rejections),
+                "request_errors": dict(self.request_errors),
                 "histograms": {
                     name: {
                         "counts": list(data["counts"]),
@@ -425,6 +471,13 @@ class ServerMetrics:
             self.preflight_rejections = {
                 "hard_limit": 0,
                 "admission_paused": 0,
+            }
+            self.request_errors = {
+                "client_disconnect": 0,
+                "generation": 0,
+                "internal": 0,
+                "other": 0,
+                "timeout": 0,
             }
             for name in self._histograms:
                 self._histograms[name] = _new_histogram()
