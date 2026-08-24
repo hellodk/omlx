@@ -9,6 +9,9 @@ while all-time metrics persist across restarts via JSON file.
 
 import json
 import logging
+import asyncio
+
+from fastapi import HTTPException
 import threading
 import time
 from pathlib import Path
@@ -47,6 +50,22 @@ def _histogram_observe(histogram: Dict[str, Any], value: float) -> None:
             histogram["counts"][index] += 1
             break
 
+
+
+def classify_request_failure(exc: BaseException) -> str | None:
+    """Map a request-killing exception to an outcome reason, or None.
+
+    None means "not a model-serving outcome": client-caused 4xx errors
+    (fastapi.HTTPException below 500) and process-lifecycle signals
+    (KeyboardInterrupt, GeneratorExit) must not inflate the error family.
+    """
+    if isinstance(exc, asyncio.CancelledError):
+        return "client_disconnect"
+    if isinstance(exc, HTTPException) and exc.status_code < 500:
+        return None
+    if isinstance(exc, Exception):
+        return "internal"
+    return None
 
 class ServerMetrics:
     """
@@ -88,6 +107,8 @@ class ServerMetrics:
         # Request outcomes that never reach record_request_complete: client
         # disconnects mid-stream, internal failures. Bounded reason set with
         # an "other" fallback so label cardinality stays fixed.
+        # "generation"/"timeout" are forward declarations until the
+        # per-stream wiring lands; they emit zeros by design.
         self.request_errors: Dict[str, int] = {
             "client_disconnect": 0,
             "generation": 0,

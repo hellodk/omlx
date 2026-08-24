@@ -349,7 +349,9 @@ def test_request_errors_render_with_reason_labels_and_other_bucket():
     metrics.record_request_error("internal")
     metrics.record_request_error("mystery_cause")
 
-    text = render_metrics_text_for_test()
+    from omlx.metrics_api import render_metrics_text
+
+    text = render_metrics_text(get_server_metrics())
 
     assert "# TYPE omlx_request_errors_total counter" in text
     assert '\nomlx_request_errors_total{reason="client_disconnect"} 1\n' in text
@@ -370,10 +372,3 @@ def test_clear_resets_request_errors_but_not_the_clear_counter():
     assert samples['omlx_request_errors_total{reason="timeout"}'] == 0.0
     clears = _parse_family(render_metrics_text(metrics), "omlx_stats_clears_total")
     assert clears["omlx_stats_clears_total"] == 1.0
-
-
-def render_metrics_text_for_test() -> str:
-    from omlx.metrics_api import render_metrics_text
-    from omlx.server_metrics import get_server_metrics
-
-    return render_metrics_text(get_server_metrics())
