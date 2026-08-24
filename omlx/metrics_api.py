@@ -207,6 +207,13 @@ def render_metrics_text(metrics: ServerMetrics | None = None) -> str:
     )
     _render_family(
         lines,
+        "omlx_spec_fallbacks_total",
+        "counter",
+        "Requests downgraded to plain decode by the speculation guardrail.",
+        [("", data["spec_fallbacks"])],
+    )
+    _render_family(
+        lines,
         "omlx_uptime_seconds",
         "gauge",
         "Seconds since server start.",

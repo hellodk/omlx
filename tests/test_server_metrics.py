@@ -543,3 +543,55 @@ def test_classify_lifecycle_signals_are_not_outcomes():
 
     assert classify_request_failure(KeyboardInterrupt()) is None
     assert classify_request_failure(GeneratorExit()) is None
+
+
+# ---------------------------------------------------------------------------
+# Speculation guardrails (#40): pure gate + fallback counter
+
+
+def test_spec_gate_engages_with_headroom_and_no_pressure():
+    from omlx.speculative.guardrails import should_engage_speculation
+
+    ok, reason = should_engage_speculation(
+        pressure_level="ok", free_bytes=4 * 1024**3
+    )
+    assert ok is True and "headroom" in reason
+
+
+def test_spec_gate_blocks_under_pressure():
+    from omlx.speculative.guardrails import should_engage_speculation
+
+    for level in ("soft", "hard"):
+        ok, reason = should_engage_speculation(pressure_level=level, free_bytes=8 * 1024**3)
+        assert ok is False and level in reason
+
+
+def test_spec_gate_blocks_below_floor_and_fails_open_without_snapshot():
+    from omlx.speculative.guardrails import (
+        DEFAULT_SPEC_FREE_FLOOR_BYTES,
+        should_engage_speculation,
+    )
+
+    below_floor = DEFAULT_SPEC_FREE_FLOOR_BYTES // 4
+    ok, reason = should_engage_speculation(free_bytes=below_floor)
+    assert ok is False and str(below_floor) in reason and "floor" in reason
+
+    ok, reason = should_engage_speculation(free_bytes=None)
+    assert ok is True and reason == "no memory snapshot"
+
+
+def test_spec_fallback_counter_roundtrip():
+    from omlx.metrics_api import render_metrics_text
+    from omlx.server_metrics import get_server_metrics
+
+    metrics = get_server_metrics()
+    metrics.record_spec_fallback()
+    metrics.record_spec_fallback()
+
+    text = render_metrics_text(metrics)
+    assert "# TYPE omlx_spec_fallbacks_total counter" in text
+    assert "\nomlx_spec_fallbacks_total 2\n" in text
+
+    metrics.clear_metrics()
+    text = render_metrics_text(metrics)
+    assert "\nomlx_spec_fallbacks_total 0\n" in text

@@ -122,6 +122,7 @@ class ServerMetrics:
         self.spec_accepted_tokens: int = 0
         self.spec_drafted_tokens: int = 0
         self.spec_cycles: int = 0
+        self.spec_fallbacks: int = 0
         self.request_errors: Dict[str, int] = {
             "client_disconnect": 0,
             "generation": 0,
@@ -314,6 +315,11 @@ class ServerMetrics:
                     generation_duration,
                 )
 
+    def record_spec_fallback(self) -> None:
+        """Count a request downgraded to plain decode by the spec gate."""
+        with self._lock:
+            self.spec_fallbacks += 1
+
     def record_spec_decode_cycle(
         self, accepted: int, drafted: int, cycles: int
     ) -> None:
@@ -476,6 +482,7 @@ class ServerMetrics:
                 "spec_accepted_tokens": self.spec_accepted_tokens,
                 "spec_drafted_tokens": self.spec_drafted_tokens,
                 "spec_cycles": self.spec_cycles,
+                "spec_fallbacks": self.spec_fallbacks,
                 "histograms": {
                     name: {
                         "counts": list(data["counts"]),
@@ -524,6 +531,7 @@ class ServerMetrics:
             self.spec_accepted_tokens = 0
             self.spec_drafted_tokens = 0
             self.spec_cycles = 0
+            self.spec_fallbacks = 0
             for name in self._histograms:
                 self._histograms[name] = _new_histogram()
             # Never reset by the operation it counts.
