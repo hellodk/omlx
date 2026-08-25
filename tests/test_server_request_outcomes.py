@@ -162,11 +162,11 @@ async def test_keepalive_prefill_guard_rejection_is_not_an_outcome():
     async def coro():
         raise PrefillMemoryExceededError("too big")
 
-    chunks = []
-    with pytest.raises(StopAsyncIteration):
-        async for chunk in _with_json_keepalive(_Request(), coro()):
-            chunks.append(chunk)
+    chunks = [
+        chunk
+        async for chunk in _with_json_keepalive(_Request(), coro())
+    ]
 
     body = json.loads(chunks[-1])
-    assert "error" in body or chunks  # error body yielded, then clean exit
+    assert "error" in body  # guard rejection body yielded, then clean exit
     assert sum(_counts(get_server_metrics()).values()) == 0
