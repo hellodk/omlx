@@ -39,6 +39,8 @@ from .staging import home_relative_model_path, validate_staged_model
 
 logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
+
 _EVENT_PREFIX = "OMLX_CLUSTER_EVENT:"
 _LOG_LINE_LIMIT = 8192
 _LOG_HISTORY = 200
