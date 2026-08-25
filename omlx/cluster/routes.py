@@ -1850,6 +1850,14 @@ def get_deployment_gate() -> DeploymentGate:
 # so they cannot sit behind this router's distributed-inference gate.
 
 
+@router.get("/error-budget")
+async def cluster_error_budget():
+    """Return per-SLO error budget status and deployment readiness."""
+
+    tracker = await asyncio.to_thread(get_error_budget_tracker)
+    return tracker.budget_status()
+
+
 @router.get("/runtime")
 async def cluster_runtime():
     """Return lightweight local rank markers for dashboard polling."""
