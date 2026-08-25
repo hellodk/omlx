@@ -3913,7 +3913,8 @@ async def test_get_engine_unloads_idle_variant_before_loading():
          patch.object(pool, "_entry_has_active_requests", return_value=False), \
          patch.object(pool, "_resolve_scheduler_from_engine", return_value=None), \
          patch.object(pool, "_load_engine", side_effect=fake_load), \
-         patch.object(pool, "_validate_llm_engine_ready"):
+         patch.object(pool, "_validate_llm_engine_ready"), \
+         patch.object(pool, "_raise_if_model_path_missing_locked"):
         await pool.get_engine(target_id)
 
     assert unloads == [idle_id], (

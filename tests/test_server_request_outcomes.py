@@ -11,6 +11,7 @@ omlx.server, so this file is Mac/CI-gated like the mlx-dependent suite.
 import asyncio
 
 import pytest
+from unittest.mock import AsyncMock, patch
 
 from omlx.server_metrics import get_server_metrics
 
@@ -46,7 +47,8 @@ async def test_mid_stream_fault_counts_internal_and_propagates():
         yield "chunk-1"
         raise RuntimeError("generation exploded")
 
-    with pytest.raises(RuntimeError):
+    with patch("omlx.server._raise_if_llm_lease_abort_requested", new=AsyncMock()), \
+         pytest.raises(RuntimeError):
         async for _ in _release_after_stream(gen(), lease):
             pass
 
@@ -65,7 +67,8 @@ async def test_mid_stream_cancel_counts_client_disconnect():
         raise asyncio.CancelledError()
 
     collector = []
-    with pytest.raises(asyncio.CancelledError):
+    with patch("omlx.server._raise_if_llm_lease_abort_requested", new=AsyncMock()), \
+         pytest.raises(asyncio.CancelledError):
         async for chunk in _release_after_stream(gen(), lease):
             collector.append(chunk)
 
@@ -84,7 +87,8 @@ async def test_clean_stream_records_no_outcome():
         yield "a"
         yield "b"
 
-    got = [chunk async for chunk in _release_after_stream(gen(), lease)]
+    with patch("omlx.server._raise_if_llm_lease_abort_requested", new=AsyncMock()):
+        got = [chunk async for chunk in _release_after_stream(gen(), lease)]
 
     assert got == ["a", "b"]
     metrics = get_server_metrics()
