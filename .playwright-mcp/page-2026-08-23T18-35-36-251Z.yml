@@ -1,0 +1,98 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - heading "Garuda — Icon & Favicon Concepts" [level=1] [ref=e12]
+  - paragraph [ref=e13]: Ten marks built from Garuda iconography — spread wings, the hooked beak, the kirīṭa crown, the sun disc, the talon on the nāga. Every one is inline SVG, no external assets.
+  - heading "1 · In a real tab strip" [level=2] [ref=e14]
+  - paragraph [ref=e15]: All ten rendered at 16 × 16 — the size that actually decides whether a favicon works.
+  - generic [ref=e16]:
+    - generic [ref=e17]:
+      - generic [ref=e18]: Vahana Wings
+      - generic [ref=e29]: Beak Profile
+      - generic [ref=e36]: Kiri&#772;t.a
+      - generic [ref=e45]: Su&#772;ryapaks.a
+      - generic [ref=e53]: Na&#772;gabhaks.aka
+      - generic [ref=e61]: Winged Disc
+      - generic [ref=e71]: G Monogram
+      - generic [ref=e77]: Pinion
+      - generic [ref=e93]: Temple Glyph
+      - generic [ref=e103]: Garuda Crest
+    - generic [ref=e114]: https://garuda.local/
+  - heading "2 · The set" [level=2] [ref=e119]
+  - paragraph [ref=e120]: Each card shows 80 px, then 32 px and 16 px on light and dark. “Set as tab icon” swaps this page’s real favicon so you can judge it in your own browser chrome.
+  - generic [ref=e121]:
+    - generic [ref=e122]:
+      - generic [ref=e133]: 32 / 16 px
+      - generic [ref=e175]: 01Vahana Wings
+      - paragraph [ref=e176]: Front-facing bird, three-fingered wings. The pointed trailing edge is what keeps it legible when it shrinks.
+      - generic [ref=e177]:
+        - generic [ref=e178]: Strong at 16px
+        - button "Set as tab icon" [ref=e179] [cursor=pointer]
+    - generic [ref=e180]:
+      - generic [ref=e187]: 32 / 16 px
+      - generic [ref=e213]: 02Beak Profile
+      - paragraph [ref=e214]: Side head knocked out of a saffron disc. The hooked beak alone identifies the bird — no other detail needed.
+      - generic [ref=e215]:
+        - generic [ref=e216]: Strong at 16px
+        - button "Set as tab icon" [ref=e217] [cursor=pointer]
+    - generic [ref=e218]:
+      - generic [ref=e227]: 32 / 16 px
+      - generic [ref=e261]: 03Kiri&#772;t.a
+      - paragraph [ref=e262]: The same profile under Garuda&rsquo;s conical crown. Crown spikes are the first thing lost when scaled down.
+      - generic [ref=e263]:
+        - generic [ref=e264]: OK at 16px
+        - button "Set as tab icon" [ref=e265] [cursor=pointer]
+    - generic [ref=e266]:
+      - generic [ref=e274]: 32 / 16 px
+      - generic [ref=e304]: 04Su&#772;ryapaks.a
+      - paragraph [ref=e305]: Sun disc flanked by two wing darts &mdash; Garuda as the solar bird. Symmetric, so it never looks tilted.
+      - generic [ref=e306]:
+        - generic [ref=e307]: Strong at 16px
+        - button "Set as tab icon" [ref=e308] [cursor=pointer]
+    - generic [ref=e309]:
+      - generic [ref=e317]: 32 / 16 px
+      - generic [ref=e347]: 05Na&#772;gabhaks.aka
+      - paragraph [ref=e348]: The serpent taken in the beak &mdash; the defining Garuda act, told with two shapes instead of a whole scene.
+      - generic [ref=e349]:
+        - generic [ref=e350]: OK at 16px
+        - button "Set as tab icon" [ref=e351] [cursor=pointer]
+    - generic [ref=e352]:
+      - generic [ref=e362]: 32 / 16 px
+      - generic [ref=e400]: 06Winged Disc
+      - paragraph [ref=e401]: Wings inside Vishnu&rsquo;s discus &mdash; Garuda as the mount. The ring gives it presence in a crowded tab strip.
+      - generic [ref=e402]:
+        - generic [ref=e403]: OK at 16px
+        - button "Set as tab icon" [ref=e404] [cursor=pointer]
+    - generic [ref=e405]:
+      - generic [ref=e411]: 32 / 16 px
+      - generic [ref=e433]: 07G Monogram
+      - paragraph [ref=e434]: Letterform for a wordmark lockup. Neutral &mdash; it carries the brand, not the mythology.
+      - generic [ref=e435]:
+        - generic [ref=e436]: OK at 16px
+        - button "Set as tab icon" [ref=e437] [cursor=pointer]
+    - generic [ref=e438]:
+      - generic [ref=e454]: 32 / 16 px
+      - generic [ref=e516]: 08Pinion
+      - paragraph [ref=e517]: One feather with cut barbs. Quiet and elegant, but the notches close up and it turns into a leaf below 24px.
+      - generic [ref=e518]:
+        - generic [ref=e519]: Weak at 16px
+        - button "Set as tab icon" [ref=e520] [cursor=pointer]
+    - generic [ref=e521]:
+      - generic [ref=e531]: 32 / 16 px
+      - generic [ref=e569]: 09Temple Glyph
+      - paragraph [ref=e570]: Stone-carving geometry &mdash; huge flat wings, no interior detail. The most robust mark in the set.
+      - generic [ref=e571]:
+        - generic [ref=e572]: Strong at 16px
+        - button "Set as tab icon" [ref=e573] [cursor=pointer]
+    - generic [ref=e574]:
+      - generic [ref=e585]: 32 / 16 px
+      - generic [ref=e627]: 10Garuda Crest
+      - paragraph [ref=e628]: Shield lockup for a badge, splash screen, or CI status icon. Reads as an emblem before it reads as a bird.
+      - generic [ref=e629]:
+        - generic [ref=e630]: OK at 16px
+        - button "Set as tab icon" [ref=e631] [cursor=pointer]
+  - paragraph [ref=e632]:
+    - text: Files live at
+    - code [ref=e633]: /tmp/claude-1000/…/scratchpad/garuda-icons.html
+    - text: . Say which numbers you want and I’ll export them as standalone
+    - code [ref=e634]: .svg
+    - text: plus PNG sizes.
